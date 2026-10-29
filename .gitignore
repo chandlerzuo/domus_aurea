@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+# Local user accounts
+data/
+# Training output: track only the final model and its config.
+runs/*
+!runs/dmc/
+runs/dmc/*
+!runs/dmc/model.pt
+!runs/dmc/config.json
+*.log

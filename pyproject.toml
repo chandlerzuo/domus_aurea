@@ -1,0 +1,22 @@
+[project]
+name = "guandan"
+version = "0.1.0"
+description = "Guandan card game: rules engine, web app vs computer players, and self-play RL agents"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "torch>=2.2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["guandan*"]
+
+[tool.setuptools.package-data]
+"guandan.server" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

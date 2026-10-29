@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Guandan</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f3d2e; color: #eee; }
+  header { display: flex; gap: 12px; align-items: center; padding: 8px 16px; background: #0a2a20; flex-wrap: wrap; }
+  header .grow { flex: 1; }
+  button { background: #e8c547; border: 0; padding: 6px 14px; border-radius: 4px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.secondary { background: #cfd8d3; }
+  select, input { padding: 5px; border-radius: 4px; border: 1px solid #888; }
+  #login { max-width: 320px; margin: 80px auto; background: #0a2a20; padding: 24px; border-radius: 8px; }
+  #login h1 { margin-top: 0; }
+  #login input { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+  .error { color: #ff8a80; min-height: 1.2em; }
+  #main { display: grid; grid-template-columns: 1fr 300px; gap: 12px; padding: 12px; }
+  #table { display: grid; grid-template-columns: 200px 1fr 200px; grid-template-rows: auto 1fr auto; gap: 8px; min-height: 560px; }
+  .seat { background: rgba(0,0,0,.2); border-radius: 8px; padding: 8px; min-height: 90px; }
+  .seat.to_act { outline: 3px solid #e8c547; }
+  .seat .name { font-weight: 600; }
+  .seat .meta { font-size: 12px; opacity: .8; }
+  #s2 { grid-column: 2; grid-row: 1; }
+  #s3 { grid-column: 1; grid-row: 2; }
+  #s1 { grid-column: 3; grid-row: 2; }
+  #center { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+  #s0 { grid-column: 1 / 4; grid-row: 3; }
+  .cards { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; }
+  .card { width: 34px; height: 50px; background: #fff; color: #111; border-radius: 4px; border: 1px solid #555;
+          display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 15px;
+          font-weight: 700; user-select: none; position: relative; }
+  .card.red { color: #c62828; }
+  .card.joker { font-size: 10px; }
+  .card.wild::after { content: "W"; position: absolute; top: 1px; right: 2px; font-size: 9px; color: #6a1b9a; }
+  .hand .card { cursor: pointer; transition: transform .08s; }
+  .hand .card.sel { transform: translateY(-10px); box-shadow: 0 4px 0 #e8c547; }
+  .mini .card { width: 26px; height: 38px; font-size: 12px; }
+  .controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  #log { background: rgba(0,0,0,.25); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, monospace;
+         height: 600px; overflow-y: auto; white-space: pre-wrap; }
+  .banner { background: #e8c547; color: #111; padding: 6px 12px; border-radius: 6px; font-weight: 600; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="login">
+  <h1>Guandan 掼蛋</h1>
+  <input id="u" placeholder="username" autocomplete="username">
+  <input id="p" type="password" placeholder="password (8+ characters)" autocomplete="current-password">
+  <div style="display:flex; gap:8px"><button id="loginBtn">Log in</button><button id="regBtn" class="secondary">Register</button></div>
+  <p class="error" id="loginErr"></p>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <strong>Guandan</strong>
+    <span id="who"></span>
+    <span id="stats" style="font-size:12px;opacity:.8"></span>
+    <span class="grow"></span>
+    Partner <select id="partner"></select>
+    Opponents <select id="opponents"></select>
+    <button id="newBtn">New match</button>
+    <button id="logoutBtn" class="secondary">Log out</button>
+  </header>
+  <div id="main">
+    <div>
+      <div id="table">
+        <div class="seat" id="s2"></div>
+        <div class="seat" id="s3"></div>
+        <div id="center"></div>
+        <div class="seat" id="s1"></div>
+        <div class="seat" id="s0">
+          <div id="mine"></div>
+          <div class="cards hand" id="hand"></div>
+          <div class="controls">
+            <button id="playBtn">Play</button>
+            <button id="passBtn" class="secondary">Pass</button>
+            <button id="hintBtn" class="secondary">Hint</button>
+            <button id="clearBtn" class="secondary">Clear</button>
+            <button id="nextBtn" class="hidden">Next deal</button>
+            <span class="error" id="err"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const SUIT = { s: "♠", h: "♥", c: "♣", d: "♦" };
+let state = null, selected = new Set(), stepTimer = null;
+
+async function api(path, body) {
+  const opts = body === undefined ? { method: "GET" }
+    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status });
+  return data;
+}
+
+function cardEl(label, opts = {}) {
+  const el = document.createElement("div");
+  el.className = "card";
+  if (label === "sj" || label === "BJ") {
+    el.classList.add("joker");
+    if (label === "BJ") el.classList.add("red");
+    el.textContent = label === "BJ" ? "BIG JOKER" : "small joker";
+  } else {
+    const rank = label[0] === "T" ? "10" : label[0], suit = label[1];
+    if (suit === "h" || suit === "d") el.classList.add("red");
+    el.append(document.createTextNode(rank), document.createElement("br"), document.createTextNode(SUIT[suit]));
+  }
+  if (opts.wild) el.classList.add("wild");
+  return el;
+}
+
+function cardsRow(labels, cls = "cards mini") {
+  const row = document.createElement("div");
+  row.className = cls;
+  for (const l of labels) row.append(cardEl(l));
+  return row;
+}
+
+function text(tag, t, cls) { const e = document.createElement(tag); e.textContent = t; if (cls) e.className = cls; return e; }
+
+function renderSeat(seat) {
+  const el = $("s" + seat.seat);
+  if (seat.seat === 0) { renderMine(seat); return; }
+  el.replaceChildren();
+  el.classList.toggle("to_act", seat.to_act);
+  el.append(text("div", `${seat.name} (${seat.kind})`, "name"));
+  el.append(text("div", `${seat.cards_left} cards` + (seat.place ? ` · finished #${seat.place}` : ""), "meta"));
+  if (seat.last) {
+    el.append(text("div", seat.last.kind, "meta"));
+    if (seat.last.cards.length) el.append(cardsRow(seat.last.cards));
+  }
+  if (state.revealed && state.revealed[seat.seat]) {
+    el.append(text("div", "left in hand:", "meta"), cardsRow(state.revealed[seat.seat]));
+  }
+}
+
+function renderMine(seat) {
+  const box = $("mine");
+  box.replaceChildren();
+  $("s0").classList.toggle("to_act", seat.to_act);
+  box.append(text("span", "You", "name"));
+  box.append(text("span", `  ${seat.cards_left} cards` + (seat.place ? ` · finished #${seat.place}` : ""), "meta"));
+  if (seat.last) {
+    box.append(text("div", "you played: " + seat.last.kind, "meta"));
+    if (seat.last.cards.length) box.append(cardsRow(seat.last.cards));
+  }
+}
+
+function render() {
+  const s = state;
+  for (const seat of s.seats) renderSeat(seat);
+  const c = $("center");
+  c.replaceChildren();
+  c.append(text("div", `Deal ${s.deal_no} · playing ${s.level === "T" ? "10" : s.level}`, "banner"));
+  const lt = s.level_team === null ? "" : (s.level_team === 0 ? " (your level)" : " (their level)");
+  c.append(text("div", `Levels — you: ${s.team_levels[0]}  ·  opponents: ${s.team_levels[1]}${lt}`));
+  c.append(text("div", "Hearts of the level rank are wild (marked W).", "meta"));
+  for (const t of s.tributes) {
+    const names = ["You", "Opponent 1", "Partner", "Opponent 3"];
+    c.append(text("div", `${names[t.payer]} paid ${t.card} to ${names[t.receiver]}` +
+      (t.returned ? `, got back ${t.returned}` : ""), "meta"));
+  }
+  if (s.resisted) c.append(text("div", "Tribute resisted (both big jokers).", "meta"));
+  const msg = {
+    your_turn: s.leading ? "Your lead — play any combination." : "Your turn — beat the table or pass.",
+    ai_turn: "Computer is thinking…",
+    return: "Return a card of rank 10 or lower to the player who paid you tribute.",
+    deal_over: s.result ? `Deal over: ${s.result.you_won ? "your team" : "opponents"} go up ${s.result.up}. ` +
+      `Order: ${s.result.order.join(", ")}` : "",
+    match_over: `Match over — ${s.match_winner} win!`,
+  }[s.phase];
+  c.append(text("div", msg, "banner"));
+
+  const hand = $("hand");
+  hand.replaceChildren();
+  const ids = new Set(s.hand.map(x => x.id));
+  selected = new Set([...selected].filter(id => ids.has(id)));
+  for (const card of s.hand) {
+    const el = cardEl(card.label, { wild: card.wild });
+    if (selected.has(card.id)) el.classList.add("sel");
+    el.onclick = () => { selected.has(card.id) ? selected.delete(card.id) : selected.add(card.id); render(); };
+    hand.append(el);
+  }
+  const mine = s.phase === "your_turn";
+  $("playBtn").textContent = s.phase === "return" ? "Return card" : "Play";
+  $("playBtn").disabled = !(mine || s.phase === "return") || selected.size === 0;
+  $("passBtn").disabled = !mine || s.leading;
+  $("hintBtn").disabled = !(mine || s.phase === "return");
+  $("nextBtn").classList.toggle("hidden", s.phase !== "deal_over");
+  $("log").textContent = s.log.join("\n");
+  $("log").scrollTop = 1e9;
+
+  clearTimeout(stepTimer);
+  if (s.phase === "ai_turn") stepTimer = setTimeout(() => act("/api/step", {}), 650);
+}
+
+async function act(path, body) {
+  $("err").textContent = "";
+  try {
+    state = await api(path, body);
+    render();
+    if (state.phase === "deal_over" || state.phase === "match_over") refreshMe();
+  } catch (e) {
+    if (e.status === 401) return showLogin();
+    $("err").textContent = e.message;
+  }
+}
+
+async function refreshMe() {
+  const me = await api("/api/me");
+  $("who").textContent = me.user;
+  const st = me.stats;
+  $("stats").textContent = `deals ${st.deals_won}-${st.deals_lost} · matches ${st.matches_won}-${st.matches_lost}`;
+  return me;
+}
+
+function showLogin() { $("app").classList.add("hidden"); $("login").classList.remove("hidden"); }
+
+async function enter() {
+  const me = await refreshMe();
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  for (const id of ["partner", "opponents"]) {
+    const sel = $(id);
+    sel.replaceChildren(...me.agents.map(a => { const o = document.createElement("option"); o.value = o.textContent = a; return o; }));
+    sel.value = me.agents.includes("dmc") ? "dmc" : "heuristic";
+  }
+  if (me.has_game) act("/api/state", {});
+}
+
+async function auth(path) {
+  $("loginErr").textContent = "";
+  try { await api(path, { username: $("u").value, password: $("p").value }); $("p").value = ""; await enter(); }
+  catch (e) { $("loginErr").textContent = e.message; }
+}
+
+$("loginBtn").onclick = () => auth("/api/login");
+$("regBtn").onclick = () => auth("/api/register");
+$("p").onkeydown = e => { if (e.key === "Enter") auth("/api/login"); };
+$("logoutBtn").onclick = async () => { await api("/api/logout", {}); state = null; showLogin(); };
+$("newBtn").onclick = () => { selected.clear(); act("/api/new", { partner: $("partner").value, opponents: $("opponents").value }); };
+$("playBtn").onclick = () => {
+  if (state.phase === "return") {
+    if (selected.size !== 1) { $("err").textContent = "pick exactly one card"; return; }
+    act("/api/return", { card: [...selected][0] });
+  } else act("/api/play", { cards: [...selected] });
+  selected.clear();
+};
+$("passBtn").onclick = () => { selected.clear(); act("/api/play", { cards: [] }); };
+$("clearBtn").onclick = () => { selected.clear(); render(); };
+$("nextBtn").onclick = () => act("/api/next", {});
+$("hintBtn").onclick = async () => {
+  try { const h = await api("/api/hint", {}); selected = new Set(h.cards); render(); }
+  catch (e) { $("err").textContent = e.message; }
+};
+
+api("/api/me").then(enter, showLogin);
+</script>
+</body>
+</html>
