@@ -12,3 +12,8 @@ runs/dmc/*
 !runs/dmc/model.pt
 !runs/dmc/config.json
 *.log
+!runs/ppo/
+runs/ppo/*
+!runs/ppo/model.pt
+!runs/ppo/bc.pt
+!runs/ppo/config.json

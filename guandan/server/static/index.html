@@ -232,7 +232,7 @@ async function enter() {
   for (const id of ["partner", "opponents"]) {
     const sel = $(id);
     sel.replaceChildren(...me.agents.map(a => { const o = document.createElement("option"); o.value = o.textContent = a; return o; }));
-    sel.value = me.agents.includes("dmc") ? "dmc" : "heuristic";
+    sel.value = ["ppo", "dmc"].find(a => me.agents.includes(a)) || "heuristic";
   }
   if (me.has_game) act("/api/state", {});
 }

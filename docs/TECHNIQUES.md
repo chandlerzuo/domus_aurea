@@ -77,7 +77,7 @@ greedy policy is deterministic, which makes it exploitable. In this game
 mixing matters less than in poker, though. Variance is high because one
 reward has to cover a whole deal.
 
-### 2. PPO fine-tuning: next step
+### 2. PPO fine-tuning: implemented
 
 *DanZero+* (2023) starts from a DMC-trained model and fine-tunes it with
 PPO, which gives a stochastic policy and better credit assignment through
@@ -85,7 +85,11 @@ a learned value baseline (GAE). poker_ai's `rl/ppo.py` carries over almost
 unchanged. The policy head becomes "logits = f(s, a) for each legal a", and
 the value head takes the state embedding.
 
-### 3. Perfect-information training, imperfect-information execution (PTIE)
+In this repo (`guandan/rl/ppo.py`) PPO starts from the imitation model (§6)
+rather than from DMC, and uses the oracle critic (§3) and belief head (§4).
+After 1M deals it beats the heuristic by +0.57 levels/deal and DMC by +1.29.
+
+### 3. Perfect-information training, imperfect-information execution (PTIE): implemented
 
 *PerfectDou* (Yang et al., NeurIPS 2022) beat DouZero by giving the **critic**
 the other players' cards during training (they are known to the simulator),
@@ -102,7 +106,7 @@ also suits the 2 v 2 team structure. *Suphx* (Mahjong, Li et al. 2020) used a
 related "oracle guiding": train with perfect-information features, then fade
 them out with dropout.
 
-### 4. Belief modelling (predicting hidden hands)
+### 4. Belief modelling (predicting hidden hands): implemented as an auxiliary loss
 
 Add an auxiliary head that predicts, for each other player, how many copies
 of each card type they hold (cross-entropy against the true hands, which the
@@ -125,12 +129,16 @@ needs to sample realistic deals. It is cheap to add to DMC or PPO.
   evaluator, AlphaZero-style. It is more expensive and fiddly in a
   four-player team game, but it is the principled version of PIMC.
 
-### 6. Imitation / warm start
+### 6. Imitation / warm start: implemented
 
 Supervised pre-training on the heuristic agent (or on human game logs, if any
 become available), followed by RL. This speeds up early training; DMC from
 scratch loses to the heuristic for the first tens of thousands of deals. The
 web app could log human games (with consent) as a source of data.
+
+Measured here: cloning the heuristic on 200k deals reaches 83% move agreement
+but plays at −1.26 levels/deal against it, since small mistakes compound
+over a deal. It is a starting point for PPO, not a player in its own right.
 
 ### 7. Match-level decisions
 
@@ -157,8 +165,8 @@ could become a learned action too.
 
 1. ~~Rules engine, heuristic baseline, duplicate evaluation~~ (done)
 2. ~~DMC self-play with snapshot/baseline league~~ (done)
-3. Belief head and PTIE critic (PerfectDou-style) on top of the DMC trunk
-4. PPO fine-tuning from DMC (DanZero+-style), reusing poker_ai's `rl/ppo.py`
+3. ~~Imitation warm start, PPO fine-tuning, PTIE critic and belief head~~ (done)
+4. Feed the belief head's predictions into the policy, and learn the tribute return
 5. PIMC test-time search with the learned policy as rollout policy
 6. Speed: port `combos.legal_moves` and the feature encoder to Rust (as in
    poker_ai's `rust/` core). Move generation is about 60% of actor time.

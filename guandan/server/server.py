@@ -27,23 +27,30 @@ HOST = "127.0.0.1"
 STATIC = Path(__file__).parent / "static"
 HUMAN = 0
 MODEL = Path(__file__).resolve().parents[2] / "runs" / "dmc" / "model.pt"
-_DMC_NET = None
+
+
+POLICY = MODEL.parents[1] / "ppo" / "model.pt"
+_NETS: dict = {}
 
 
 def make_agent(kind: str, seed: int | None) -> Agent:
-    global _DMC_NET
     if kind == "dmc":
         from ..rl.dmc import DMCAgent, load_net
-        if _DMC_NET is None:
-            _DMC_NET = load_net(MODEL)
-        return DMCAgent(_DMC_NET, seed=seed)
+        if "dmc" not in _NETS:
+            _NETS["dmc"] = load_net(MODEL)
+        return DMCAgent(_NETS["dmc"], seed=seed)
+    if kind == "ppo":
+        from ..rl.policy import PolicyAgent, load_policy
+        if "ppo" not in _NETS:
+            _NETS["ppo"] = load_policy(POLICY)
+        return PolicyAgent(_NETS["ppo"], seed=seed)
     if kind not in BASE_AGENTS:
         raise ValueError(f"unknown agent {kind!r}")
     return BASE_AGENTS[kind](seed=seed)
 
 
 def agent_kinds() -> list[str]:
-    return sorted(BASE_AGENTS) + (["dmc"] if MODEL.exists() else [])
+    return sorted(BASE_AGENTS) + [k for k, p in (("dmc", MODEL), ("ppo", POLICY)) if p.exists()]
 
 
 def card_json(c: int, level: int) -> dict:

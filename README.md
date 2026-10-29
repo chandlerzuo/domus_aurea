@@ -59,24 +59,44 @@ matching kind, and leads use the strongest reading.
 | Agent | |
 |---|---|
 | `random` | uniform over legal moves |
-| `heuristic` | rule-based: sheds low, long combos without breaking bombs or pairs, never overtakes its partner, saves bombs and big cards for when an opponent is close to going out. Beats random by ~2.9 levels/deal |
+| `heuristic` | rule-based: sheds low, long combos without breaking bombs or pairs, never overtakes its partner, saves bombs and big cards for when an opponent is close to going out |
 | `dmc` | Q-network over (state, move) trained by Deep Monte-Carlo self-play (`guandan/rl/dmc.py`) |
+| `ppo` | policy network warm-started by imitating the heuristic, then fine-tuned with PPO using a critic that sees all four hands during training only, plus a hidden-hand prediction head (`guandan/rl/policy.py`, `guandan/rl/ppo.py`) |
+
+Duplicate-deal results (2,000 deals each, levels per deal for the first agent):
+
+| Matchup | Levels/deal | Deals won |
+|---|---|---|
+| ppo vs heuristic | **+0.57 ± 0.05** | 55.5% |
+| ppo vs dmc | **+1.29 ± 0.05** | 71.2% |
+| dmc vs heuristic | −0.11 ± 0.05 | 45.5% |
+| bc (imitation only) vs heuristic | −1.26 ± 0.05 | 26.1% |
+| heuristic vs random | +2.9 | 99% |
+
+Imitation alone matches the heuristic's move 83% of the time but plays much
+worse than it, because small mistakes compound over a deal. Its value is as a
+starting point: PPO from that start passes the heuristic within 1M deals,
+while DMC from scratch did not.
 
 ```bash
-# Train (actors in parallel processes, learner on Apple GPU/CUDA if available)
+# DMC (actors in parallel processes, learner on Apple GPU/CUDA if available)
 .venv/bin/python scripts/train_dmc.py --deals 1000000 --out runs/dmc
 .venv/bin/python scripts/train_dmc.py --deals 5000000 --out runs/dmc --resume
 
+# Imitation warm start (200k heuristic deals, ~10 min) then PPO (1M deals, ~1h45 on 12 actors)
+.venv/bin/python scripts/train_ppo.py --bc-deals 200000 --ppo-deals 1000000 --out runs/ppo
+.venv/bin/python scripts/train_ppo.py --bc-deals 0 --ppo-deals 2000000 --resume
+
 # Duplicate-deal evaluation (same cards played twice, teams swapped)
-.venv/bin/python scripts/evaluate.py --a dmc --b heuristic --pairs 2000
+.venv/bin/python scripts/evaluate.py --a ppo --b heuristic --pairs 1000
 ```
 
-Training mixes opponents the way poker_ai's PPO league does: mostly the
-current network against itself, plus the heuristic baseline and frozen past
-snapshots. Each deal starts from a random point in a match (random levels and
+Both trainers mix opponents the way poker_ai's PPO league does: mostly the
+current network against itself, plus the heuristic baseline, frozen past
+snapshots and (for PPO) the DMC model. Each deal starts from a random point in a match (random levels and
 a previous finishing order, so tribute happens), so the network sees every
-level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt` and
-`config.json` are tracked in git.
+level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt`,
+`bc.pt` and `config.json` are tracked in git.
 
 ## Layout
 
@@ -87,13 +107,12 @@ level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt` and
 | `guandan/game.py` | `Deal` (one hand of play) and `Match` (levels, tribute, match end) |
 | `guandan/agents.py` | random and heuristic agents |
 | `guandan/evaluate.py` | duplicate-deal head-to-head |
-| `guandan/rl/` | feature encoding, DMC Q-network, actor/learner training loop |
+| `guandan/rl/` | feature encoding; DMC Q-network and trainer; policy/critic networks, imitation and PPO trainer |
 | `guandan/server/` | HTTP server, accounts, single-page UI |
 | `docs/TECHNIQUES.md` | which model-training techniques fit Guandan, and the roadmap |
 
 ## Roadmap
 
-See [docs/TECHNIQUES.md](docs/TECHNIQUES.md#roadmap): belief head and
-perfect-information critic (PerfectDou-style), PPO fine-tuning from DMC
-(DanZero+-style), PIMC test-time search, and a Rust move generator for faster
-self-play.
+See [docs/TECHNIQUES.md](docs/TECHNIQUES.md#roadmap): PIMC test-time search
+on top of the PPO policy, a learned tribute-return choice, longer PPO runs, and
+a Rust move generator for faster self-play.
