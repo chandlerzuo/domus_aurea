@@ -37,48 +37,74 @@ What limits a small cloud machine (e.g. Tencent Cloud Lighthouse, 2 vCPU / 4 GB)
   browser tab. A 6 Mbps plan carries about 140 tabs at 70% utilisation, which
   is about 45 tables with one player and two watchers each.
 
-The bandwidth limit is the tighter one. **The default is 20 tables** (60 AI
-agents, about 60 tabs, about 2 Mbps). That's well within both limits, with
-room for 2-3× more watchers than the test assumed. Change it with `--tables N`.
-Re-run the load test on the real machine before raising it much
-(`python scripts/loadtest.py --tables 20 50 --seconds 60`). Run it on the
-server itself, so the tunnel isn't part of the measurement.
+The bandwidth limit is the tighter one. **The default is 10 tables** (30 AI
+agents, about 30 tabs, about 1 Mbps), far inside both limits. Change it with
+`--tables N` (or `setup_lighthouse.sh --tables N`). Re-run the load test on the
+real machine before raising it much
+(`python scripts/loadtest.py --tables 10 30 --seconds 60`). Run it on the server
+itself, so the tunnel isn't part of the measurement.
 
-## Setup on Tencent Cloud Lighthouse
+## Getting the code onto a server in China
 
-1. **Create the instance:** Ubuntu 22.04 or later, 2 vCPU / 4 GB. Any region
-   works; mainland regions give players in China the lowest latency.
-2. **Firewall:** in the console, allow only **SSH (22) from your own IP**.
-   Remove the default HTTP/HTTPS rules. Use key-based login and disable password
-   SSH (`PasswordAuthentication no` in `/etc/ssh/sshd_config`).
-3. **Install:**
+Servers in mainland China often can't reach GitHub, and PyPI is slow there.
+PyTorch's own download site may also be unreachable. There are three ways
+around this, from most to least reliable:
+
+1. **Offline bundle (recommended).** On your own computer,
+   `deploy/make_bundle.sh` packs the committed code, the trained models and
+   Linux wheels for numpy and CPU-only PyTorch into one file (about 260 MB).
+   Copy it over with `scp`. The server then needs nothing from the internet
+   except its own apt mirror, which Lighthouse images already point at Tencent.
+   If `scp` is slow from where you are, upload the bundle to a **private** COS
+   bucket and download it on the server with a short-lived presigned URL.
+   Don't make the bucket or the object public.
+2. **A git mirror inside China.** Push this repo to a *private* repo on Gitee
+   or Tencent CNB (`git remote add gitee git@gitee.com:<you>/guandan.git && git push gitee main`),
+   then run `setup_lighthouse.sh --repo <url>`. With a private repo, give the
+   server a read-only deploy key or token. In this mode Python packages come
+   from Tencent Cloud's PyPI mirror (`--pip-index`, default
+   `https://mirrors.cloud.tencent.com/pypi/simple`) and PyTorch from
+   `--torch-index` (default `https://download.pytorch.org/whl/cpu`). If that
+   index is unreachable, the script falls back to the PyPI mirror, whose Linux
+   PyTorch build pulls about 2 GB of CUDA libraries. It works, but it's slow
+   and large, which is one more reason to prefer the bundle.
+3. **A Hong Kong or Singapore region**, where GitHub and PyPI work normally.
+   This costs some latency for players in mainland China.
+
+## One-step setup on Tencent Cloud Lighthouse
+
+1. **Create the instance:** Ubuntu **24.04** image (Python 3.12; 22.04's 3.10 is
+   too old), 2 vCPU / 4 GB, x86-64. Mainland regions give players in China the
+   lowest latency.
+2. **Firewall** (Lighthouse console): allow only **SSH (22) from your own IP**.
+   Remove the default HTTP/HTTPS rules. Never add the game port.
+3. **Build and copy the bundle** on your computer:
    ```bash
-   sudo apt update && sudo apt install -y python3-venv git
-   git clone <your repo> guandan && cd guandan
-   python3 -m venv .venv && .venv/bin/pip install -e .
+   deploy/make_bundle.sh                       # dist/guandan-<rev>.tar.gz
+   scp dist/guandan-<rev>.tar.gz ubuntu@<server-ip>:~
    ```
-   The trained models (`runs/ppo/model.pt`, `runs/dmc/model.pt`) are in the
-   repo, so nothing needs training on the server.
-4. **Run it as a service:** `/etc/systemd/system/guandan.service`:
-   ```ini
-   [Unit]
-   Description=Guandan game server
-   After=network-online.target
-
-   [Service]
-   User=ubuntu
-   WorkingDirectory=/home/ubuntu/guandan
-   ExecStart=/home/ubuntu/guandan/.venv/bin/python -m guandan.server --host 127.0.0.1 --port 8770 --db data/games.db
-   Restart=on-failure
-
-   [Install]
-   WantedBy=multi-user.target
+4. **Run the setup** on the server:
+   ```bash
+   tar xzf guandan-<rev>.tar.gz && sudo bash guandan-<rev>/deploy/setup_lighthouse.sh
    ```
-   Then `sudo systemctl enable --now guandan` and check with
-   `ss -ltnp | grep 8770`. It must show `127.0.0.1:8770`.
-5. **Back up the replays:** `data/games.db` holds every finished deal and review.
-   Copy it off the machine now and then, e.g. a daily cron job:
-   `sqlite3 data/games.db ".backup data/backup-$(date +%F).db"`.
+   It installs the Python packages offline from the bundle and puts the code
+   in `/opt/guandan/app`, read-only to the service. It creates a `guandan`
+   system user and a hardened systemd service bound to `127.0.0.1:8770`, and a
+   daily database backup (`/var/lib/guandan/backups`, kept 14 days). It then
+   checks that the port is listening **only** on the expected address and
+   that the lobby answers.
+   Options: `--tables N`, `--port P`, `--host tailscale` (see below),
+   `--repo URL` (install from a git mirror instead of the bundle).
+5. **By hand:** use key-based SSH and set `PasswordAuthentication no` in
+   `/etc/ssh/sshd_config`. The script doesn't change SSH settings, so it can't
+   lock you out. Copy `/var/lib/guandan/backups` off the machine now and then.
+
+**Upgrade:** commit, build a new bundle, copy it over, and run the setup again.
+The code is replaced and the database is kept. Restarting ends games in
+progress; finished deals and reviews are kept.
+
+Useful commands: `systemctl status guandan`, `journalctl -u guandan -f`,
+`ss -ltnp | grep 8770` (must show `127.0.0.1:8770`).
 
 ## How players connect
 
@@ -93,9 +119,10 @@ ssh -N -L 8770:127.0.0.1:8770 ubuntu@<server-ip>
 
 1. Install Tailscale on the server and on each player's device, and sign them
    into the same tailnet (invite friends from the Tailscale admin console).
-2. Start the server on the Tailscale address instead of loopback:
-   `--host 100.x.y.z` (from `tailscale ip -4`). Add `--allow-host <machine-name>`
-   if players use the MagicDNS name. The server only accepts loopback,
+2. Bind the server to the Tailscale address instead of loopback:
+   `sudo bash .../setup_lighthouse.sh --host tailscale` (or run the server with
+   `--host 100.x.y.z` from `tailscale ip -4`, plus `--allow-host <machine-name>`
+   if players use the MagicDNS name). The server only accepts loopback,
    Tailscale (100.64.0.0/10) and RFC 1918 private addresses.
 3. Players open `http://100.x.y.z:8770`. Only devices in your tailnet can reach it.
    Tailscale encrypts the traffic, so no TLS certificate is needed.

@@ -26,7 +26,7 @@ from .tables import Lobby, agent_kinds
 
 STATIC = Path(__file__).parent / "static"
 TAILSCALE = ipaddress.ip_network("100.64.0.0/10")
-TABLES = 20  # see docs/DEPLOY.md: capacity estimate
+TABLES = 10  # see docs/DEPLOY.md: capacity estimate
 
 
 def check_bind(host: str) -> None:

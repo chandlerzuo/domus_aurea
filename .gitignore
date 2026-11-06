@@ -17,3 +17,4 @@ runs/ppo/*
 !runs/ppo/model.pt
 !runs/ppo/bc.pt
 !runs/ppo/config.json
+dist/

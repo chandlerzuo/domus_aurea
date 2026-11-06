@@ -19,7 +19,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 ## Play
 
 ```bash
-.venv/bin/python -m guandan.server          # http://127.0.0.1:8770, 20 tables
+.venv/bin/python -m guandan.server          # http://127.0.0.1:8770, 10 tables
 ```
 
 - **Tables:** sit at an open table to host it. The host fills empty seats with
@@ -46,7 +46,10 @@ There are no accounts. The server only listens on loopback by default, and
 refuses wildcard and public addresses. To play on a cloud machine with friends,
 reach it over an SSH tunnel or Tailscale/WireGuard; see
 [docs/DEPLOY.md](docs/DEPLOY.md), which also has the capacity measurements
-behind the 20-table default (`scripts/loadtest.py`).
+behind the 10-table default (`scripts/loadtest.py`). For a Tencent Cloud
+Lighthouse server that can't reach GitHub, build an offline bundle with
+`deploy/make_bundle.sh`, copy it over, and run `deploy/setup_lighthouse.sh` on
+the server.
 
 ## Rules implemented
 
@@ -126,6 +129,7 @@ level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt`,
 | `guandan/server/` | HTTP server, tables/host/seat logic, replay storage, single-page UI |
 | `docs/TECHNIQUES.md` | which model-training techniques fit Guandan, and the roadmap |
 | `docs/DEPLOY.md` | private cloud setup (SSH tunnel / Tailscale), capacity and table count |
+| `deploy/` | `make_bundle.sh` (offline install bundle: code, models, Linux wheels) and `setup_lighthouse.sh` (one-step server setup) |
 
 ## Roadmap
 
