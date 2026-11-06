@@ -1,324 +1,192 @@
-"""Web app: log in and play Guandan with a computer partner against two computer opponents.
+"""Web app: shared tables where people play Guandan with and against each other and AI players.
 
-Loopback-only by design. To play from another machine, forward the port over
-SSH (ssh -L 8770:127.0.0.1:8770 host) rather than widening the bind. Requests
-whose Host header is not this loopback address are rejected (DNS-rebinding
-protection), and state-changing requests must be JSON, which together with the
-SameSite=Strict session cookie blocks cross-site form posts.
+The first person to sit at an open table hosts it: they fill empty seats with
+AI or wait for others to sit, then start the match. There are no accounts. Access control is the network: the server binds to
+loopback by default, and otherwise only to a private address (a Tailscale or
+WireGuard interface). Public and wildcard binds are refused. Reach it over an
+SSH tunnel (ssh -L 8770:127.0.0.1:8770 host) or the private network; see
+docs/DEPLOY.md. Requests whose Host header is not an expected address are
+rejected (DNS-rebinding protection), and actions require the seat token issued
+when the seat was claimed.
 
-  python -m guandan.server [--port 8770] [--db data/users.db]
+  python -m guandan.server [--host 127.0.0.1] [--port 8770] [--db data/games.db]
 """
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
-import threading
-from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-from ..agents import AGENTS as BASE_AGENTS, Agent, HeuristicAgent
-from ..cards import RANKS, card_str, is_wild
-from ..game import Match, combo_label, partner, return_options, team
-from .auth import SESSION_TTL, Sessions, Users
+from ..review import lead_flags
+from .store import Store
+from .tables import Lobby, agent_kinds
 
-HOST = "127.0.0.1"
 STATIC = Path(__file__).parent / "static"
-HUMAN = 0
-MODEL = Path(__file__).resolve().parents[2] / "runs" / "dmc" / "model.pt"
+TAILSCALE = ipaddress.ip_network("100.64.0.0/10")
+TABLES = 20  # see docs/DEPLOY.md: capacity estimate
 
 
-POLICY = MODEL.parents[1] / "ppo" / "model.pt"
-_NETS: dict = {}
-
-
-def make_agent(kind: str, seed: int | None) -> Agent:
-    if kind == "dmc":
-        from ..rl.dmc import DMCAgent, load_net
-        if "dmc" not in _NETS:
-            _NETS["dmc"] = load_net(MODEL)
-        return DMCAgent(_NETS["dmc"], seed=seed)
-    if kind == "ppo":
-        from ..rl.policy import PolicyAgent, load_policy
-        if "ppo" not in _NETS:
-            _NETS["ppo"] = load_policy(POLICY)
-        return PolicyAgent(_NETS["ppo"], seed=seed)
-    if kind not in BASE_AGENTS:
-        raise ValueError(f"unknown agent {kind!r}")
-    return BASE_AGENTS[kind](seed=seed)
-
-
-def agent_kinds() -> list[str]:
-    return sorted(BASE_AGENTS) + [k for k, p in (("dmc", MODEL), ("ppo", POLICY)) if p.exists()]
-
-
-def card_json(c: int, level: int) -> dict:
-    return {"id": c, "label": card_str(c), "wild": is_wild(c, level)}
-
-
-class Game:
-    """One user's match. The human always sits at seat 0; seat 2 is their partner."""
-
-    def __init__(self, user: str, partner_kind: str, opponent_kind: str, seed: int | None = None):
-        self.user = user
-        self.kinds = [None, opponent_kind, partner_kind, opponent_kind]
-        self.agents = [None] + [make_agent(k, None if seed is None else seed + s)
-                                for s, k in enumerate(self.kinds[1:], 1)]
-        self.hint_agent = HeuristicAgent(seed)
-        self.match = Match(seed=seed)
-        self.trick: dict[int, dict] = {}
-        self.lock = threading.Lock()
-        self.recorded = False
-        self._start_deal()
-
-    def _start_deal(self) -> None:
-        m = self.match
-        d = m.new_deal()
-        for t in m.pending_returns:
-            if t.receiver != HUMAN:
-                m.give_return(t.receiver, self.agents[t.receiver].choose_return(d.hands[t.receiver], d.level))
-        self.trick = {}
-        self.recorded = False
-
-    @property
-    def deal(self):
-        return self.match.deal
-
-    def phase(self) -> str:
-        if self.match.pending_returns:
-            return "return"
-        if self.deal.done:
-            return "match_over" if self.match.over else "deal_over"
-        return "your_turn" if self.deal.to_act == HUMAN else "ai_turn"
-
-    def _apply(self, move) -> None:
-        d = self.deal
-        seat = d.to_act
-        if d.leading:
-            self.trick = {}
-        d.play(move)
-        self.trick[seat] = {"kind": "pass" if move.is_pass else str(move.combo),
-                            "cards": [card_str(c) for c in move.cards]}
-        self.match.log.append(f"{self.name(seat)}: {combo_label(move)}")
-        if d.done:
-            self.match.finish_deal()
-
-    def step(self) -> None:
-        """One computer action (no-op when waiting for the human)."""
-        if self.phase() != "ai_turn":
-            return
-        d = self.deal
-        obs = d.observation(d.to_act)
-        agent = self.agents[d.to_act]
-        self._apply(obs["legal"][agent.act(obs)])
-
-    def play(self, cards: list[int]) -> None:
-        if self.phase() != "your_turn":
-            raise ValueError("not your turn")
-        self._apply(self.deal.move_from_cards([int(c) for c in cards]))
-
-    def give_return(self, card: int) -> None:
-        if self.phase() != "return":
-            raise ValueError("no return owed")
-        self.match.give_return(HUMAN, int(card))
-
-    def next_deal(self) -> None:
-        if self.phase() != "deal_over":
-            raise ValueError("deal still in progress")
-        self._start_deal()
-
-    def hint(self) -> list[int]:
-        if self.phase() == "return":
-            return [self.hint_agent.choose_return(self.deal.hands[HUMAN], self.deal.level)]
-        if self.phase() != "your_turn":
-            return []
-        obs = self.deal.observation(HUMAN)
-        return list(obs["legal"][self.hint_agent.act(obs)].cards)
-
-    def name(self, seat: int) -> str:
-        return "You" if seat == HUMAN else ("Partner" if seat == partner(HUMAN) else f"Opponent {seat}")
-
-    def record_result(self, users: Users) -> None:
-        """Count a finished deal (and match) once in the user's stats."""
-        if self.recorded or not self.deal.done:
-            return
-        self.recorded = True
-        won = self.deal.result()[0] == team(HUMAN)
-        users.record(self.user, "deals_won" if won else "deals_lost")
-        if self.match.over:
-            users.record(self.user, "matches_won" if self.match.winner == team(HUMAN) else "matches_lost")
-
-    def view(self) -> dict:
-        m, d = self.match, self.deal
-        phase = self.phase()
-        seats = []
-        for s in range(4):
-            seats.append({
-                "seat": s, "name": self.name(s), "kind": self.kinds[s] or "human", "cards_left": len(d.hands[s]),
-                "to_act": s == d.to_act, "place": d.finished.index(s) + 1 if s in d.finished else None,
-                "last": self.trick.get(s),
-            })
-        out = {
-            "phase": phase, "level": RANKS[d.level], "team_levels": [RANKS[x] for x in m.team_levels],
-            "level_team": m.level_team, "deal_no": m.deals_played + (0 if d.done else 1),
-            "hand": [card_json(c, d.level) for c in d.hands[HUMAN]], "seats": seats,
-            "table": combo_label(d.table) if d.table else None, "table_seat": d.table_seat,
-            "leading": d.leading, "log": m.log[-60:],
-            "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": card_str(t.card),
-                          "returned": card_str(t.returned) if t.returned is not None else None}
-                         for t in m.tributes],
-            "resisted": m.resisted,
-        }
-        if phase == "return":
-            out["return_options"] = return_options(d.hands[HUMAN])
-        if d.done:
-            win, up = d.result()
-            out["result"] = {"order": [self.name(s) for s in d.finished], "you_won": win == team(HUMAN), "up": up}
-        if m.over:
-            out["match_winner"] = "You" if m.winner == team(HUMAN) else "Opponents"
-        # Opponents' and partner's cards stay hidden until the deal is over.
-        if d.done:
-            out["revealed"] = {s: [card_str(c) for c in d.hands[s]] for s in range(4) if d.hands[s]}
-        return out
-
-
-class App:
-    def __init__(self, db: str | Path):
-        self.users = Users(db)
-        self.sessions = Sessions()
-        self.games: dict[str, Game] = {}
-        self.allowed_hosts: set[str] = set()
+def check_bind(host: str) -> None:
+    """Allow loopback and private-network addresses only (never 0.0.0.0, :: or a public IP)."""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        raise SystemExit(f"--host must be an IP address, got {host!r}") from None
+    if ip.is_unspecified or not (ip.is_loopback or ip.is_private or ip in TAILSCALE):
+        raise SystemExit(f"refusing to bind {host}: this server has no login, so it must only listen on "
+                         "loopback or a private (Tailscale/WireGuard) address. See docs/DEPLOY.md.")
 
 
 class Handler(BaseHTTPRequestHandler):
-    app: App
+    lobby: Lobby
+    allowed_hosts: set[str]
 
     def log_message(self, fmt, *args):  # keep the console quiet
         pass
 
-    def _send(self, code: int, body: bytes, ctype_: str = "application/json", headers: dict | None = None) -> None:
+    def _send(self, code: int, body: bytes, ctype: str = "application/json") -> None:
         self.send_response(code)
-        self.send_header("Content-Type", ctype_)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; "
                                                     "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
-        for k, v in (headers or {}).items():
-            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, code: int, obj, headers: dict | None = None) -> None:
-        self._send(code, json.dumps(obj).encode(), headers=headers)
+    def _json(self, code: int, obj) -> None:
+        self._send(code, json.dumps(obj).encode())
 
-    def _token(self) -> str | None:
-        c = SimpleCookie(self.headers.get("Cookie") or "")
-        return c["session"].value if "session" in c else None
-
-    def _host_ok(self) -> bool:
-        return (self.headers.get("Host") or "") in self.app.allowed_hosts
+    def _route(self, method: str) -> None:
+        if (self.headers.get("Host") or "") not in self.allowed_hosts:
+            return self._json(403, {"error": "bad host"})
+        url = urlsplit(self.path)
+        parts = url.path.strip("/").split("/")
+        query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        body: dict = {}
+        try:
+            if method == "POST":
+                if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
+                    return self._json(415, {"error": "JSON required"})
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 64 * 1024:
+                    return self._json(413, {"error": "request too large"})
+                body = json.loads(self.rfile.read(length) or b"{}")
+            return self._dispatch(method, parts, query, body)
+        except PermissionError as e:
+            self._json(409, {"error": str(e)})
+        except KeyError as e:
+            self._json(404, {"error": str(e).strip("'\"")})
+        except (ValueError, TypeError) as e:
+            self._json(400, {"error": str(e)})
 
     def do_GET(self):
-        if not self._host_ok():
-            return self._json(403, {"error": "bad host"})
-        path = urlsplit(self.path).path
-        if path in ("/", "/index.html"):
-            return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
-        user = self.app.sessions.get(self._token())
-        if path == "/api/me":
-            if user is None:
-                return self._json(401, {"error": "not logged in"})
-            return self._json(200, {"user": user, "stats": self.app.users.stats(user), "agents": agent_kinds(),
-                                    "has_game": user in self.app.games})
-        self._json(404, {"error": "not found"})
+        self._route("GET")
 
     def do_POST(self):
-        if not self._host_ok():
-            return self._json(403, {"error": "bad host"})
-        if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
-            return self._json(415, {"error": "JSON required"})
-        app = self.app
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-            if length > 64 * 1024:
-                return self._json(413, {"error": "request too large"})
-            body = json.loads(self.rfile.read(length) or b"{}")
-            path = urlsplit(self.path).path
-            if path == "/api/register":
-                app.users.register(body.get("username", ""), body.get("password", ""))
-                return self._login(body)
-            if path == "/api/login":
-                return self._login(body)
-            user = app.sessions.get(self._token())
-            if user is None:
-                return self._json(401, {"error": "not logged in"})
-            if path == "/api/logout":
-                app.sessions.delete(self._token())
-                return self._json(200, {}, {"Set-Cookie": "session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"})
-            if path == "/api/new":
-                kinds = agent_kinds()
-                p, o = body.get("partner", "heuristic"), body.get("opponents", "heuristic")
-                if p not in kinds or o not in kinds:
-                    raise ValueError("unknown agent")
-                app.games[user] = Game(user, p, o)
-                with app.games[user].lock:
-                    return self._json(200, app.games[user].view())
-            g = app.games.get(user)
-            if g is None:
-                return self._json(404, {"error": "no game; start one"})
-            with g.lock:
-                if path == "/api/state":
-                    pass
-                elif path == "/api/step":
-                    g.step()
-                elif path == "/api/play":
-                    g.play(body.get("cards", []))
-                elif path == "/api/return":
-                    g.give_return(body["card"])
-                elif path == "/api/next":
+        self._route("POST")
+
+    def _dispatch(self, method: str, parts: list[str], query: dict, body: dict) -> None:
+        lobby = self.lobby
+        if method == "GET" and parts in ([""], ["index.html"]):
+            return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if parts == ["api", "lobby"] and method == "GET":
+            return self._json(200, {"tables": [t.summary() for t in lobby.tables], "agents": agent_kinds(),
+                                    "recent": lobby.store.deals(limit=20)})
+        if parts == ["api", "deals"] and method == "GET":
+            return self._json(200, lobby.store.deals(match_id=query.get("match"), limit=100))
+        if len(parts) >= 3 and parts[:2] == ["api", "deal"]:
+            deal_id = int(parts[2])
+            if len(parts) == 3 and method == "GET":
+                record = lobby.store.deal(deal_id)
+                if record is None:
+                    raise KeyError("no such deal")
+                return self._json(200, {"id": deal_id, **record, "leads": lead_flags(record)})
+            if parts[3:] == ["review"]:
+                seat = int(query.get("seat", body.get("seat", 0)))
+                if method == "POST":
+                    return self._json(200, lobby.request_review(deal_id, seat))
+                return self._json(200, lobby.review_status(deal_id, seat))
+        if len(parts) == 4 and parts[:2] == ["api", "table"]:
+            table = lobby.table(int(parts[2]))
+            token = self.headers.get("X-Seat-Token")
+            cmd = parts[3]
+            if cmd == "state" and method == "GET":
+                seat = int(query.get("seat", 0))
+                if not 0 <= seat < 4:
+                    raise ValueError("seat must be 0-3")
+                return self._json(200, table.view(token, seat))  # a seated player always sees their own seat
+            if method != "POST":
+                raise KeyError("not found")
+            if cmd == "sit":
+                token = table.sit(int(body.get("seat", -1)), body.get("name"), body.get("suggestions", False))
+                return self._json(200, {"token": token, **table.view(token, 0)})
+            with table.lock:
+                me = table.seat_of(token)
+                if me is None:
+                    raise PermissionError("you are not seated at this table")
+                g = table.game
+                if cmd == "leave":
+                    table.leave(me)
+                elif cmd == "seat":
+                    table.set_seat(me, int(body["seat"]), body.get("kind", "empty"))
+                elif cmd == "start":
+                    table.start(me)
+                elif g is None:
+                    raise ValueError("the match has not started")
+                elif cmd == "play":
+                    g.play(me, body.get("cards", []))
+                elif cmd == "return":
+                    g.give_return(me, body["card"])
+                elif cmd == "next":
                     g.next_deal()
-                elif path == "/api/hint":
-                    return self._json(200, {"cards": g.hint()})
                 else:
-                    return self._json(404, {"error": "not found"})
-                g.record_result(app.users)
-                return self._json(200, g.view())
-        except (KeyError, ValueError, TypeError) as e:
-            self._json(400, {"error": str(e)})
-        except FileNotFoundError as e:  # "dmc" chosen but no trained model on disk
-            self._json(400, {"error": f"missing model file: {e.filename}"})
-
-    def _login(self, body: dict) -> None:
-        user = self.app.users.verify(body.get("username", ""), body.get("password", ""))
-        if user is None:
-            return self._json(401, {"error": "wrong username or password"})
-        token = self.app.sessions.create(user)
-        cookie = f"session={token}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Strict"
-        self._json(200, {"user": user}, {"Set-Cookie": cookie})
+                    raise KeyError("unknown command")
+                return self._json(200, table.view(None if cmd == "leave" else token, me))
+        raise KeyError("not found")
 
 
-def make_server(port: int, db: str | Path) -> ThreadingHTTPServer:
-    app = App(db)
-    srv = ThreadingHTTPServer((HOST, port), type("BoundHandler", (Handler,), {"app": app}))
+class Server(ThreadingHTTPServer):
+    request_queue_size = 256  # the default of 5 drops connections when many clients poll at once
+    daemon_threads = True
+
+
+def make_server(host: str, port: int, db: str | Path, tables: int = TABLES, ai_delay: float = 0.9,
+                extra_hosts: tuple[str, ...] = ()) -> ThreadingHTTPServer:
+    check_bind(host)
+    lobby = Lobby(Store(db), tables, ai_delay=ai_delay)
+    handler = type("BoundHandler", (Handler,), {"lobby": lobby, "allowed_hosts": set()})
+    srv = Server((host, port), handler)
     port = srv.server_address[1]  # resolved when port=0
-    app.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    names = [host] + (["localhost"] if ipaddress.ip_address(host).is_loopback else []) + list(extra_hosts)
+    handler.allowed_hosts = {f"{n}:{port}" for n in names}
+    srv.lobby = lobby
     return srv
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--host", default="127.0.0.1", help="loopback (default) or a private Tailscale/WireGuard IP")
     ap.add_argument("--port", type=int, default=8770)
-    ap.add_argument("--db", default="data/users.db")
+    ap.add_argument("--db", default="data/games.db")
+    ap.add_argument("--tables", type=int, default=TABLES)
+    ap.add_argument("--ai-delay", type=float, default=0.9, help="seconds between computer moves")
+    ap.add_argument("--allow-host", action="append", default=[],
+                    help="extra Host name clients use, e.g. a Tailscale MagicDNS name")
     a = ap.parse_args()
-    srv = make_server(a.port, a.db)
-    print(f"guandan on http://{HOST}:{a.port}  (Ctrl-C to stop)")
+    srv = make_server(a.host, a.port, a.db, a.tables, a.ai_delay, tuple(a.allow_host))
+    print(f"guandan on http://{a.host}:{srv.server_address[1]}  (Ctrl-C to stop)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        srv.lobby.stop()
 
 
 if __name__ == "__main__":

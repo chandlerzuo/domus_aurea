@@ -2,30 +2,41 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guandan</title>
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f3d2e; color: #eee; }
   header { display: flex; gap: 12px; align-items: center; padding: 8px 16px; background: #0a2a20; flex-wrap: wrap; }
   header .grow { flex: 1; }
+  a { color: #e8c547; cursor: pointer; }
   button { background: #e8c547; border: 0; padding: 6px 14px; border-radius: 4px; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: .4; cursor: default; }
   button.secondary { background: #cfd8d3; }
-  select, input { padding: 5px; border-radius: 4px; border: 1px solid #888; }
-  #login { max-width: 320px; margin: 80px auto; background: #0a2a20; padding: 24px; border-radius: 8px; }
-  #login h1 { margin-top: 0; }
-  #login input { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+  select, input[type=text] { padding: 5px; border-radius: 4px; border: 1px solid #888; }
   .error { color: #ff8a80; min-height: 1.2em; }
+  .meta { font-size: 12px; opacity: .8; }
+  .hidden { display: none !important; }
+  .banner { background: #e8c547; color: #111; padding: 6px 12px; border-radius: 6px; font-weight: 600; }
+  /* lobby */
+  #lobby { max-width: 900px; margin: 24px auto; padding: 0 12px; }
+  .tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .tcard { background: #0a2a20; border-radius: 8px; padding: 16px; }
+  .tcard h2 { margin: 0 0 8px; }
+  .seatline { font-size: 13px; margin: 2px 0; }
+  .tcard .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  table.list { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  table.list td, table.list th { padding: 4px 6px; border-bottom: 1px solid #1e5a45; text-align: left; }
+  /* table */
   #main { display: grid; grid-template-columns: 1fr 300px; gap: 12px; padding: 12px; }
-  #table { display: grid; grid-template-columns: 200px 1fr 200px; grid-template-rows: auto 1fr auto; gap: 8px; min-height: 560px; }
+  #felt, #rfelt { display: grid; grid-template-columns: 210px 1fr 210px; grid-template-rows: auto 1fr auto; gap: 8px; min-height: 520px; }
   .seat { background: rgba(0,0,0,.2); border-radius: 8px; padding: 8px; min-height: 90px; }
   .seat.to_act { outline: 3px solid #e8c547; }
   .seat .name { font-weight: 600; }
-  .seat .meta { font-size: 12px; opacity: .8; }
-  #s2 { grid-column: 2; grid-row: 1; }
-  #s3 { grid-column: 1; grid-row: 2; }
-  #s1 { grid-column: 3; grid-row: 2; }
-  #center { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; }
-  #s0 { grid-column: 1 / 4; grid-row: 3; }
+  .pos-top { grid-column: 2; grid-row: 1; }
+  .pos-left { grid-column: 1; grid-row: 2; }
+  .pos-right { grid-column: 3; grid-row: 2; }
+  .pos-bottom { grid-column: 1 / 4; grid-row: 3; }
+  .center { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; }
   .cards { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; }
   .card { width: 34px; height: 50px; background: #fff; color: #111; border-radius: 4px; border: 1px solid #555;
           display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 15px;
@@ -33,76 +44,127 @@
   .card.red { color: #c62828; }
   .card.joker { font-size: 10px; }
   .card.wild::after { content: "W"; position: absolute; top: 1px; right: 2px; font-size: 9px; color: #6a1b9a; }
-  .hand .card { cursor: pointer; transition: transform .08s; }
+  .hand.mine .card { cursor: pointer; transition: transform .08s; }
   .hand .card.sel { transform: translateY(-10px); box-shadow: 0 4px 0 #e8c547; }
-  .mini .card { width: 26px; height: 38px; font-size: 12px; }
-  .controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
-  #log { background: rgba(0,0,0,.25); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, monospace;
-         height: 600px; overflow-y: auto; white-space: pre-wrap; }
-  .banner { background: #e8c547; color: #111; padding: 6px 12px; border-radius: 6px; font-weight: 600; }
-  .hidden { display: none !important; }
+  .mini .card { width: 24px; height: 36px; font-size: 11px; }
+  .controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+  #log, #moves { background: rgba(0,0,0,.25); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, monospace;
+         height: 560px; overflow-y: auto; white-space: pre-wrap; }
+  #sugg button { display: block; margin: 4px 0; text-align: left; background: #cfe8dc; font-weight: 500; }
+  #moves div { cursor: pointer; padding: 1px 4px; border-radius: 3px; }
+  #moves div.cur { background: #e8c547; color: #111; }
+  #moves div.flag { border-left: 3px solid #ff8a80; }
+  #review { background: rgba(0,0,0,.25); border-radius: 8px; padding: 8px; margin-top: 8px; font-size: 13px; }
+  #review .item { padding: 6px; margin: 4px 0; background: rgba(0,0,0,.25); border-radius: 4px; cursor: pointer; }
+  @media (max-width: 800px) { .tables { grid-template-columns: 1fr; } #main { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
-<div id="login">
-  <h1>Guandan 掼蛋</h1>
-  <input id="u" placeholder="username" autocomplete="username">
-  <input id="p" type="password" placeholder="password (8+ characters)" autocomplete="current-password">
-  <div style="display:flex; gap:8px"><button id="loginBtn">Log in</button><button id="regBtn" class="secondary">Register</button></div>
-  <p class="error" id="loginErr"></p>
+<header>
+  <strong><a id="home">Guandan 掼蛋</a></strong>
+  <span id="where"></span>
+  <span class="grow"></span>
+  <span class="error" id="err"></span>
+</header>
+
+<div id="lobby">
+  <p class="meta">Sit at an open table to host it: fill empty seats with AI players or wait for friends to sit down,
+    then start. Seats are first come, first served. You can also watch any table from one player's point of view —
+    you'll only see that player's cards.</p>
+  <div class="tables" id="tables"></div>
+  <h3>Recent deals</h3>
+  <table class="list"><thead><tr><th>Deal</th><th>Table</th><th>South/North</th><th>Players</th><th>AI help used by</th><th></th></tr></thead>
+    <tbody id="recent"></tbody></table>
 </div>
 
-<div id="app" class="hidden">
-  <header>
-    <strong>Guandan</strong>
-    <span id="who"></span>
-    <span id="stats" style="font-size:12px;opacity:.8"></span>
-    <span class="grow"></span>
-    Partner <select id="partner"></select>
-    Opponents <select id="opponents"></select>
-    <button id="newBtn">New match</button>
-    <button id="logoutBtn" class="secondary">Log out</button>
-  </header>
+<div id="game" class="hidden">
   <div id="main">
     <div>
-      <div id="table">
-        <div class="seat" id="s2"></div>
-        <div class="seat" id="s3"></div>
-        <div id="center"></div>
-        <div class="seat" id="s1"></div>
-        <div class="seat" id="s0">
+      <div id="felt">
+        <div class="seat pos-top" id="pos-top"></div>
+        <div class="seat pos-left" id="pos-left"></div>
+        <div class="center" id="center"></div>
+        <div class="seat pos-right" id="pos-right"></div>
+        <div class="seat pos-bottom" id="pos-bottom">
           <div id="mine"></div>
           <div class="cards hand" id="hand"></div>
-          <div class="controls">
+          <div class="controls hidden" id="hostControls">
+            <button id="startBtn">Start match</button>
+            <span class="meta" id="hostHint"></span>
+          </div>
+          <div class="controls" id="playerControls">
             <button id="playBtn">Play</button>
             <button id="passBtn" class="secondary">Pass</button>
-            <button id="hintBtn" class="secondary">Hint</button>
             <button id="clearBtn" class="secondary">Clear</button>
             <button id="nextBtn" class="hidden">Next deal</button>
-            <span class="error" id="err"></span>
+            <button id="leaveBtn" class="secondary">Leave table</button>
+          </div>
+          <div class="controls hidden" id="watchControls">
+            Watching from <select id="watchSeat"></select>
+            <button id="backBtn" class="secondary">Back to lobby</button>
           </div>
         </div>
       </div>
     </div>
-    <div id="log"></div>
+    <div>
+      <div id="sugg" class="hidden"><strong>AI suggestions</strong><div id="suggList"></div></div>
+      <div id="deals" class="meta"></div>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<div id="replay" class="hidden">
+  <div id="main" style="display:grid">
+    <div>
+      <div id="rfelt">
+        <div class="seat pos-top" id="r2"></div>
+        <div class="seat pos-left" id="r3"></div>
+        <div class="center" id="rcenter"></div>
+        <div class="seat pos-right" id="r1"></div>
+        <div class="seat pos-bottom" id="r0"></div>
+      </div>
+      <div class="controls">
+        <button id="rFirst" class="secondary">⏮</button>
+        <button id="rPrev" class="secondary">◀</button>
+        <input type="range" id="rSlider" min="0" value="0" style="flex:1">
+        <button id="rNext" class="secondary">▶</button>
+        <button id="rLast" class="secondary">⏭</button>
+        <span id="rStep" class="meta"></span>
+      </div>
+      <div id="review"></div>
+    </div>
+    <div id="moves"></div>
   </div>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
 const SUIT = { s: "♠", h: "♥", c: "♣", d: "♦" };
-let state = null, selected = new Set(), stepTimer = null;
+const RANKS = "23456789TJQKA", SUITS = "shcd";
+const NAMES = ["South", "East", "North", "West"];
+const POS = ["pos-bottom", "pos-right", "pos-top", "pos-left"];  // by seat relative to the viewer
+let route = { view: "lobby" }, state = null, selected = new Set(), poll = null, lobbyData = null;
 
-async function api(path, body) {
-  const opts = body === undefined ? { method: "GET" }
-    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+const token = t => sessionStorage.getItem("seat-" + t);
+
+async function api(path, body, tableId) {
+  const headers = {};
+  if (tableId && token(tableId)) headers["X-Seat-Token"] = token(tableId);
+  const opts = body === undefined ? { method: "GET", headers }
+    : { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body) };
   const r = await fetch(path, opts);
   const data = await r.json();
   if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status });
   return data;
 }
 
-function cardEl(label, opts = {}) {
+function text(tag, t, cls) { const e = document.createElement(tag); e.textContent = t; if (cls) e.className = cls; return e; }
+function option(value, label) { const o = document.createElement("option"); o.value = value; o.textContent = label; return o; }
+const rankName = r => r === "T" ? "10" : r;
+const teamName = t => t === 0 ? "South/North" : "East/West";
+
+function cardEl(label, wild) {
   const el = document.createElement("div");
   el.className = "card";
   if (label === "sj" || label === "BJ") {
@@ -110,11 +172,11 @@ function cardEl(label, opts = {}) {
     if (label === "BJ") el.classList.add("red");
     el.textContent = label === "BJ" ? "BIG JOKER" : "small joker";
   } else {
-    const rank = label[0] === "T" ? "10" : label[0], suit = label[1];
+    const suit = label[1];
     if (suit === "h" || suit === "d") el.classList.add("red");
-    el.append(document.createTextNode(rank), document.createElement("br"), document.createTextNode(SUIT[suit]));
+    el.append(document.createTextNode(rankName(label[0])), document.createElement("br"), document.createTextNode(SUIT[suit]));
   }
-  if (opts.wild) el.classList.add("wild");
+  if (wild) el.classList.add("wild");
   return el;
 }
 
@@ -125,145 +187,436 @@ function cardsRow(labels, cls = "cards mini") {
   return row;
 }
 
-function text(tag, t, cls) { const e = document.createElement(tag); e.textContent = t; if (cls) e.className = cls; return e; }
-
-function renderSeat(seat) {
-  const el = $("s" + seat.seat);
-  if (seat.seat === 0) { renderMine(seat); return; }
-  el.replaceChildren();
-  el.classList.toggle("to_act", seat.to_act);
-  el.append(text("div", `${seat.name} (${seat.kind})`, "name"));
-  el.append(text("div", `${seat.cards_left} cards` + (seat.place ? ` · finished #${seat.place}` : ""), "meta"));
-  if (seat.last) {
-    el.append(text("div", seat.last.kind, "meta"));
-    if (seat.last.cards.length) el.append(cardsRow(seat.last.cards));
-  }
-  if (state.revealed && state.revealed[seat.seat]) {
-    el.append(text("div", "left in hand:", "meta"), cardsRow(state.revealed[seat.seat]));
-  }
+function show(view) {
+  for (const v of ["lobby", "game", "replay"]) $(v).classList.toggle("hidden", v !== view);
+  clearInterval(poll);
+  poll = null;
 }
 
-function renderMine(seat) {
-  const box = $("mine");
+function setError(msg) { $("err").textContent = msg || ""; }
+
+function seatLabel(info, i) {
+  if (info.kind === "empty") return `${NAMES[i]}: empty`;
+  if (info.kind === "human") return `${NAMES[i]}: ${info.name}`;
+  return `${NAMES[i]}: AI (${info.kind})`;
+}
+
+// ---- lobby -----------------------------------------------------------------
+
+async function openLobby() {
+  route = { view: "lobby" };
+  show("lobby");
+  $("where").textContent = "Lobby";
+  const refresh = async () => {
+    try { lobbyData = await api("/api/lobby"); renderLobby(); } catch (e) { setError(e.message); }
+  };
+  await refresh();
+  poll = setInterval(refresh, 3000);
+}
+
+function renderLobby() {
+  const box = $("tables");
+  if (box.contains(document.activeElement)) return;  // don't wipe a form the user is filling in
   box.replaceChildren();
-  $("s0").classList.toggle("to_act", seat.to_act);
-  box.append(text("span", "You", "name"));
-  box.append(text("span", `  ${seat.cards_left} cards` + (seat.place ? ` · finished #${seat.place}` : ""), "meta"));
-  if (seat.last) {
-    box.append(text("div", "you played: " + seat.last.kind, "meta"));
-    if (seat.last.cards.length) box.append(cardsRow(seat.last.cards));
+  for (const t of lobbyData.tables) {
+    const c = document.createElement("div");
+    c.className = "tcard";
+    const status = { open: "Open", waiting: `Waiting to start (host: ${t.host === null ? "-" : t.seats[t.host].name})`,
+                     playing: `Playing — deal ${t.deal_no}, levels ${t.team_levels ? t.team_levels.join(" / ") : ""}` }[t.status];
+    c.append(text("h2", `Table ${t.id}`), text("div", status, "meta"));
+    t.seats.forEach((x, i) => c.append(text("div", seatLabel(x, i), "seatline")));
+    const row = document.createElement("div");
+    row.className = "row";
+    if (token(t.id) && t.status !== "open") {
+      const b = text("button", "Back to my seat");
+      b.onclick = () => { location.hash = `table-${t.id}`; };
+      row.append(b);
+    } else if (t.status !== "playing") {
+      const empty = t.seats.map((x, i) => x.kind === "empty" ? i : -1).filter(i => i >= 0);
+      const sel = document.createElement("select");
+      empty.forEach(i => sel.append(option(i, NAMES[i])));
+      const name = document.createElement("input");
+      name.type = "text"; name.placeholder = "your name"; name.maxLength = 16; name.size = 10;
+      name.value = localStorage.getItem("name") || "";
+      const lab = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      lab.append(cb, document.createTextNode(" AI suggestions"));
+      const b = text("button", t.status === "open" ? "Sit & host" : "Sit down");
+      b.onclick = () => sit(t.id, +sel.value, name.value, cb.checked);
+      if (empty.length) row.append(sel, name, lab, b);
+    }
+    if (t.status !== "open") {
+      const wsel = document.createElement("select");
+      NAMES.forEach((n, i) => wsel.append(option(i, n)));
+      const w = text("button", "Watch", "secondary");
+      w.onclick = () => { location.hash = `watch-${t.id}-${wsel.value}`; };
+      row.append(wsel, w);
+    }
+    c.append(row);
+    box.append(c);
+  }
+  const tb = $("recent");
+  tb.replaceChildren();
+  for (const d of lobbyData.recent) {
+    const tr = document.createElement("tr");
+    tr.append(text("td", `#${d.id} (deal ${d.deal_no})`), text("td", d.table), text("td", d.result > 0 ? `+${d.result}` : `${d.result}`),
+              text("td", d.humans.map(s => NAMES[s]).join(", ")), text("td", d.assisted.map(s => NAMES[s]).join(", ") || "none"));
+    const td = document.createElement("td");
+    const a = text("a", "replay & review");
+    a.onclick = () => { location.hash = `replay-${d.id}`; };
+    td.append(a);
+    tr.append(td);
+    tb.append(tr);
   }
 }
+
+async function sit(tid, seat, name, suggestions) {
+  setError("");
+  localStorage.setItem("name", name);
+  try {
+    const r = await api(`/api/table/${tid}/sit`, { seat, name, suggestions });
+    sessionStorage.setItem("seat-" + tid, r.token);
+    location.hash = `table-${tid}`;
+  } catch (e) { setError(e.message); }
+}
+
+// ---- table (waiting room, play, watch) --------------------------------------
+
+function openTable(tid, watchSeat) {
+  route = { view: "game", table: tid, seat: watchSeat };
+  show("game");
+  selected.clear();
+  $("watchSeat").replaceChildren(...NAMES.map((n, i) => option(i, n)));
+  $("watchSeat").value = watchSeat;
+  refreshTable();
+  poll = setInterval(refreshTable, 700);
+}
+
+async function refreshTable() {
+  const { table, seat } = route;
+  try {
+    const s = await api(`/api/table/${table}/state?seat=${seat}`, undefined, table);
+    if (token(table) && s.my_seat === null) {
+      sessionStorage.removeItem("seat-" + table);
+      setError("Your seat was released (left, idle, or timed out).");
+    }
+    if (s.status === "open") { if (location.hash) location.hash = ""; return openLobby(); }
+    state = s;
+    render();
+  } catch (e) { setError(e.message); }
+}
+
+const seated = () => state.my_seat !== null && state.my_seat !== undefined;
 
 function render() {
   const s = state;
-  for (const seat of s.seats) renderSeat(seat);
+  $("where").textContent = `Table ${s.table} — ` + (seated() ? `you are ${NAMES[s.my_seat]}` + (s.host === s.my_seat ? " (host)" : "") : "watching");
+  $("playerControls").classList.toggle("hidden", !seated());
+  $("watchControls").classList.toggle("hidden", seated());
+  $("hostControls").classList.toggle("hidden", !(seated() && s.status === "waiting" && s.host === s.my_seat));
+  if (s.status === "waiting") return renderWaiting();
+  renderPlaying();
+}
+
+function renderWaiting() {
+  const s = state, v = seated() ? s.my_seat : route.seat, isHost = seated() && s.host === s.my_seat;
+  for (let seat = 0; seat < 4; seat++) {
+    const rel = (seat - v + 4) % 4;
+    const el = rel === 0 ? $("mine") : $(POS[rel]);
+    el.replaceChildren();
+    if (rel !== 0) el.classList.remove("to_act");
+    const info = s.seats_info[seat];
+    el.append(text("div", seatLabel(info, seat) + (seat === s.host ? " · host" : "") + (seat % 2 === v % 2 && seat !== v ? " (partner)" : ""), "name"));
+    if (isHost && info.kind !== "human") {
+      const row = document.createElement("div");
+      row.className = "controls";
+      if (info.kind === "empty") {
+        const sel = document.createElement("select");
+        lobbyAgents().forEach(a => sel.append(option(a, a)));
+        sel.value = ["ppo", "dmc"].find(a => lobbyAgents().includes(a)) || "heuristic";
+        const b = text("button", "Add AI", "secondary");
+        b.onclick = () => act("seat", { seat, kind: sel.value });
+        row.append(sel, b);
+      } else {
+        const b = text("button", "Remove AI", "secondary");
+        b.onclick = () => act("seat", { seat, kind: "empty" });
+        row.append(b);
+      }
+      el.append(row);
+    } else if (info.kind === "empty") {
+      el.append(text("div", "waiting for someone to sit…", "meta"));
+    }
+  }
+  $("hand").replaceChildren();
+  const full = s.seats_info.every(x => x.kind !== "empty");
+  $("startBtn").disabled = !full;
+  $("hostHint").textContent = full ? "All seats filled." : "Fill empty seats with AI, or wait for people to sit.";
+  $("center").replaceChildren(text("div", isHost ? "You are the host. Start when every seat is filled."
+    : `Waiting for the host (${s.seats_info[s.host].name}) to start…`, "banner"));
+  for (const id of ["playBtn", "passBtn", "clearBtn"]) $(id).disabled = true;
+  $("nextBtn").classList.add("hidden");
+  $("sugg").classList.add("hidden");
+  $("log").textContent = "";
+}
+
+function lobbyAgents() { return (lobbyData && lobbyData.agents) || ["heuristic", "random"]; }
+
+function renderSeat(p, el) {
+  const s = state;
+  el.replaceChildren();
+  el.classList.toggle("to_act", p.to_act);
+  el.append(text("div", p.name + (p.seat % 2 === s.view_seat % 2 ? " (partner)" : ""), "name"));
+  el.append(text("div", `${NAMES[p.seat]} · ${p.cards_left} cards` + (p.place ? ` · finished #${p.place}` : ""), "meta"));
+  if (p.last) {
+    el.append(text("div", p.last.kind, "meta"));
+    if (p.last.cards.length) el.append(cardsRow(p.last.cards));
+  }
+  if (s.revealed && s.revealed[p.seat]) el.append(text("div", "left in hand:", "meta"), cardsRow(s.revealed[p.seat]));
+}
+
+function renderPlaying() {
+  const s = state, v = s.view_seat;
+  for (const p of s.seats) {
+    const rel = (p.seat - v + 4) % 4;
+    if (rel !== 0) renderSeat(p, $(POS[rel]));
+  }
+  const me = s.seats[v];
+  $("pos-bottom").classList.toggle("to_act", me.to_act);
+  const mine = $("mine");
+  mine.replaceChildren(text("span", `${me.name}${s.as_player ? " — you" : " (watching)"} · ${NAMES[v]}`, "name"),
+                       text("span", `  ${me.cards_left} cards` + (me.place ? ` · finished #${me.place}` : ""), "meta"));
+  if (me.last) {
+    mine.append(text("div", "played: " + me.last.kind, "meta"));
+    if (me.last.cards.length) mine.append(cardsRow(me.last.cards));
+  }
+
+  const myTurn = s.as_player && s.phase === "human_turn" && s.waiting_on.includes(v);
+  const myReturn = s.as_player && s.phase === "return" && s.waiting_on.includes(v);
   const c = $("center");
   c.replaceChildren();
-  c.append(text("div", `Deal ${s.deal_no} · playing ${s.level === "T" ? "10" : s.level}`, "banner"));
-  const lt = s.level_team === null ? "" : (s.level_team === 0 ? " (your level)" : " (their level)");
-  c.append(text("div", `Levels — you: ${s.team_levels[0]}  ·  opponents: ${s.team_levels[1]}${lt}`));
+  c.append(text("div", `Deal ${s.deal_no} · playing ${rankName(s.level)}`, "banner"));
+  c.append(text("div", `Levels — South/North: ${s.team_levels[0]}  ·  East/West: ${s.team_levels[1]}`));
   c.append(text("div", "Hearts of the level rank are wild (marked W).", "meta"));
   for (const t of s.tributes) {
-    const names = ["You", "Opponent 1", "Partner", "Opponent 3"];
-    c.append(text("div", `${names[t.payer]} paid ${t.card} to ${names[t.receiver]}` +
-      (t.returned ? `, got back ${t.returned}` : ""), "meta"));
+    c.append(text("div", `${s.seats[t.payer].name} paid ${t.card} to ${s.seats[t.receiver].name}` + (t.returned ? `, got back ${t.returned}` : ""), "meta"));
   }
   if (s.resisted) c.append(text("div", "Tribute resisted (both big jokers).", "meta"));
-  const msg = {
-    your_turn: s.leading ? "Your lead — play any combination." : "Your turn — beat the table or pass.",
-    ai_turn: "Computer is thinking…",
-    return: "Return a card of rank 10 or lower to the player who paid you tribute.",
-    deal_over: s.result ? `Deal over: ${s.result.you_won ? "your team" : "opponents"} go up ${s.result.up}. ` +
-      `Order: ${s.result.order.join(", ")}` : "",
-    match_over: `Match over — ${s.match_winner} win!`,
+  const turn = s.seats.find(x => x.to_act);
+  let msg = {
+    human_turn: myTurn ? (s.leading ? "Your lead — play any combination." : "Your turn — beat the table or pass.") : `${turn ? turn.name : ""} is thinking…`,
+    ai_turn: `${turn ? turn.name : "AI"} is thinking…`,
+    return: myReturn ? "Return a card of rank 10 or lower to the player who paid you tribute." : "Waiting for a return card…",
+    deal_over: s.result ? `Deal over: ${teamName(s.result.win_team)} go up ${s.result.up}. Order: ${s.result.order.join(", ")}. Next deal in ${s.next_in}s` : "",
+    match_over: `Match over — ${teamName(s.match_winner)} win!`,
   }[s.phase];
   c.append(text("div", msg, "banner"));
 
   const hand = $("hand");
   hand.replaceChildren();
+  hand.classList.toggle("mine", s.as_player);
   const ids = new Set(s.hand.map(x => x.id));
   selected = new Set([...selected].filter(id => ids.has(id)));
   for (const card of s.hand) {
-    const el = cardEl(card.label, { wild: card.wild });
+    const el = cardEl(card.label, card.wild);
     if (selected.has(card.id)) el.classList.add("sel");
-    el.onclick = () => { selected.has(card.id) ? selected.delete(card.id) : selected.add(card.id); render(); };
+    if (s.as_player) el.onclick = () => { selected.has(card.id) ? selected.delete(card.id) : selected.add(card.id); render(); };
     hand.append(el);
   }
-  const mine = s.phase === "your_turn";
-  $("playBtn").textContent = s.phase === "return" ? "Return card" : "Play";
-  $("playBtn").disabled = !(mine || s.phase === "return") || selected.size === 0;
-  $("passBtn").disabled = !mine || s.leading;
-  $("hintBtn").disabled = !(mine || s.phase === "return");
-  $("nextBtn").classList.toggle("hidden", s.phase !== "deal_over");
+  if (s.as_player) {
+    $("playBtn").textContent = myReturn ? "Return card" : "Play";
+    $("playBtn").disabled = !(myTurn || myReturn) || selected.size === 0;
+    $("passBtn").disabled = !myTurn || s.leading;
+    $("clearBtn").disabled = false;
+    $("nextBtn").classList.toggle("hidden", s.phase !== "deal_over");
+  }
+  const sugg = $("sugg");
+  sugg.classList.toggle("hidden", !(s.suggestions && s.suggestions.length));
+  if (s.suggestions) {
+    $("suggList").replaceChildren(...s.suggestions.map(x => {
+      const b = text("button", `${x.p === null ? "" : Math.round(x.p * 100) + "% · "}${x.move}`);
+      b.onclick = () => { selected = new Set(x.cards); render(); };
+      return b;
+    }));
+  }
+  const deals = $("deals");
+  deals.replaceChildren();
+  if (s.deal_ids.length) {
+    deals.append("Finished deals this match (opens in a new tab): ");
+    s.deal_ids.forEach((id, i) => { const a = text("a", `#${i + 1}`); a.onclick = () => window.open(`#replay-${id}`, "_blank"); deals.append(a, " "); });
+  }
   $("log").textContent = s.log.join("\n");
   $("log").scrollTop = 1e9;
-
-  clearTimeout(stepTimer);
-  if (s.phase === "ai_turn") stepTimer = setTimeout(() => act("/api/step", {}), 650);
 }
 
-async function act(path, body) {
-  $("err").textContent = "";
-  try {
-    state = await api(path, body);
-    render();
-    if (state.phase === "deal_over" || state.phase === "match_over") refreshMe();
-  } catch (e) {
-    if (e.status === 401) return showLogin();
-    $("err").textContent = e.message;
+async function act(cmd, body) {
+  setError("");
+  try { state = await api(`/api/table/${route.table}/${cmd}`, body, route.table); if (state.status === "open") return openLobby(); render(); }
+  catch (e) {
+    if (e.status === 409 && !token(route.table)) return openLobby();
+    setError(e.message);
   }
 }
 
-async function refreshMe() {
-  const me = await api("/api/me");
-  $("who").textContent = me.user;
-  const st = me.stats;
-  $("stats").textContent = `deals ${st.deals_won}-${st.deals_lost} · matches ${st.matches_won}-${st.matches_lost}`;
-  return me;
-}
-
-function showLogin() { $("app").classList.add("hidden"); $("login").classList.remove("hidden"); }
-
-async function enter() {
-  const me = await refreshMe();
-  $("login").classList.add("hidden");
-  $("app").classList.remove("hidden");
-  for (const id of ["partner", "opponents"]) {
-    const sel = $(id);
-    sel.replaceChildren(...me.agents.map(a => { const o = document.createElement("option"); o.value = o.textContent = a; return o; }));
-    sel.value = ["ppo", "dmc"].find(a => me.agents.includes(a)) || "heuristic";
-  }
-  if (me.has_game) act("/api/state", {});
-}
-
-async function auth(path) {
-  $("loginErr").textContent = "";
-  try { await api(path, { username: $("u").value, password: $("p").value }); $("p").value = ""; await enter(); }
-  catch (e) { $("loginErr").textContent = e.message; }
-}
-
-$("loginBtn").onclick = () => auth("/api/login");
-$("regBtn").onclick = () => auth("/api/register");
-$("p").onkeydown = e => { if (e.key === "Enter") auth("/api/login"); };
-$("logoutBtn").onclick = async () => { await api("/api/logout", {}); state = null; showLogin(); };
-$("newBtn").onclick = () => { selected.clear(); act("/api/new", { partner: $("partner").value, opponents: $("opponents").value }); };
 $("playBtn").onclick = () => {
   if (state.phase === "return") {
-    if (selected.size !== 1) { $("err").textContent = "pick exactly one card"; return; }
-    act("/api/return", { card: [...selected][0] });
-  } else act("/api/play", { cards: [...selected] });
+    if (selected.size !== 1) return setError("pick exactly one card");
+    act("return", { card: [...selected][0] });
+  } else act("play", { cards: [...selected] });
   selected.clear();
 };
-$("passBtn").onclick = () => { selected.clear(); act("/api/play", { cards: [] }); };
+$("passBtn").onclick = () => { selected.clear(); act("play", { cards: [] }); };
 $("clearBtn").onclick = () => { selected.clear(); render(); };
-$("nextBtn").onclick = () => act("/api/next", {});
-$("hintBtn").onclick = async () => {
-  try { const h = await api("/api/hint", {}); selected = new Set(h.cards); render(); }
-  catch (e) { $("err").textContent = e.message; }
+$("nextBtn").onclick = () => act("next", {});
+$("startBtn").onclick = () => act("start", {});
+$("leaveBtn").onclick = async () => {
+  try { await api(`/api/table/${route.table}/leave`, {}, route.table); } catch (e) { /* already released */ }
+  sessionStorage.removeItem("seat-" + route.table);
+  location.hash = "";
 };
+$("watchSeat").onchange = () => { route.seat = +$("watchSeat").value; history.replaceState(null, "", `#watch-${route.table}-${route.seat}`); refreshTable(); };
+$("backBtn").onclick = () => { location.hash = ""; };
+$("home").onclick = () => { location.hash = ""; openLobby(); };
 
-api("/api/me").then(enter, showLogin);
+// ---- replay & review -------------------------------------------------------
+
+let rec = null, rstep = 0, review = null, reviewSeat = 0;
+
+const typeLabel = t => t === 52 ? "sj" : t === 53 ? "BJ" : RANKS[t % 13] + SUITS[Math.floor(t / 13)];
+const cardLabel = id => typeLabel(id % 54);
+function sortKey(id, level) { const t = id % 54; const v = t === 52 ? 14 : t === 53 ? 15 : (t % 13 === level ? 13 : t % 13); return v * 100 + t; }
+
+async function openReplay(id) {
+  route = { view: "replay", deal: id };
+  show("replay");
+  setError("");
+  try { rec = await api(`/api/deal/${id}`); } catch (e) { setError(e.message); return; }
+  review = null;
+  rstep = 0;
+  reviewSeat = rec.humans.length ? rec.humans[0] : 0;
+  $("where").textContent = `Replay — deal #${id} (table ${rec.table}, deal ${rec.deal_no} of its match)`;
+  $("rSlider").max = rec.moves.length;
+  renderReplay();
+  loadReview(false);
+}
+
+function handsAt(k) {
+  const hands = rec.hands.map(h => [...h]);
+  for (let i = 0; i < k; i++) {
+    const [seat, cards] = rec.moves[i];
+    hands[seat] = hands[seat].filter(c => !cards.includes(c));
+  }
+  return hands;
+}
+
+function moveText(m) { const [seat, cards, kind] = m; return kind === 0 ? `${rec.names[seat]}: pass` : `${rec.names[seat]}: ${cards.map(cardLabel).join(" ")}`; }
+
+function renderReplay() {
+  const k = rstep, hands = handsAt(k);
+  let lead = 0;
+  for (let i = 0; i < k; i++) if (rec.leads[i]) lead = i;
+  const trick = {};
+  if (k > 0) for (let i = lead; i < k; i++) trick[rec.moves[i][0]] = rec.moves[i];
+  const decision = review && review.decisions.find(d => d.step === k);
+  for (let s = 0; s < 4; s++) {
+    const el = $("r" + s);
+    el.replaceChildren();
+    el.classList.toggle("to_act", k < rec.moves.length && rec.moves[k][0] === s);
+    const out = hands[s].length === 0 && rec.finished.includes(s) ? ` · finished #${rec.finished.indexOf(s) + 1}` : "";
+    el.append(text("div", `${rec.names[s]}` + (rec.humans.includes(s) ? ` · ${NAMES[s]}` : "") + out, "name"));
+    const sorted = [...hands[s]].sort((a, b) => sortKey(a, rec.level) - sortKey(b, rec.level));
+    const row = document.createElement("div");
+    row.className = "cards mini";
+    for (const c of sorted) row.append(cardEl(cardLabel(c), c % 54 === 13 + rec.level));
+    el.append(row);
+    if (trick[s]) {
+      el.append(text("div", "played" + (trick[s][2] === 0 ? ": pass" : ":"), "meta"));
+      if (trick[s][1].length) el.append(cardsRow(trick[s][1].map(cardLabel)));
+    }
+  }
+  const c = $("rcenter");
+  c.replaceChildren(text("div", `Playing ${rankName(RANKS[rec.level])} · levels ${RANKS[rec.team_levels[0]]}/${RANKS[rec.team_levels[1]]}`, "banner"));
+  for (const t of rec.tributes) c.append(text("div", `${rec.names[t.payer]} paid ${t.card} to ${rec.names[t.receiver]}` + (t.returned ? `, got back ${t.returned}` : ""), "meta"));
+  if (k < rec.moves.length) c.append(text("div", "Next: " + moveText(rec.moves[k])));
+  else c.append(text("div", `Result: ${teamName(rec.result.win_team)} up ${rec.result.up}`, "banner"));
+  if (decision) {
+    c.append(text("div", `${rec.names[reviewSeat]} played ${decision.played} (policy ${Math.round(decision.p_played * 100)}%)`));
+    if (!decision.agrees) c.append(text("div", `AI preferred ${decision.best} (${Math.round(decision.p_best * 100)}%)` +
+      (decision.impact !== undefined ? ` · est. impact ${decision.impact > 0 ? "+" : ""}${decision.impact} ± ${decision.impact_se} levels` : "")));
+  }
+  $("rSlider").value = k;
+  $("rStep").textContent = `move ${k} / ${rec.moves.length}`;
+  const flagged = new Set(review ? review.flagged : []);
+  $("moves").replaceChildren(...rec.moves.map((m, i) => {
+    const d = text("div", `${String(i + 1).padStart(3)}. ${moveText(m)}`);
+    if (i === k) d.classList.add("cur");
+    if (flagged.has(i)) d.classList.add("flag");
+    d.onclick = () => { rstep = i; renderReplay(); };
+    return d;
+  }));
+}
+
+function reviewPicker(box) {
+  const row = document.createElement("div");
+  row.className = "controls";
+  const sel = document.createElement("select");
+  (rec.humans.length ? rec.humans : [0, 1, 2, 3]).forEach(s => sel.append(option(s, `${rec.names[s]} (${NAMES[s]})`)));
+  sel.value = reviewSeat;
+  sel.onchange = () => { reviewSeat = +sel.value; review = null; renderReplay(); loadReview(false); };
+  const b = text("button", "Review with the AI");
+  b.onclick = () => loadReview(true);
+  row.append("Player:", sel, b);
+  box.append(row);
+}
+
+async function loadReview(start) {
+  const box = $("review");
+  const deal = route.deal, seat = reviewSeat;
+  try {
+    const r = start ? await api(`/api/deal/${deal}/review`, { seat }) : await api(`/api/deal/${deal}/review?seat=${seat}`);
+    if (route.deal !== deal || reviewSeat !== seat) return;
+    box.replaceChildren();
+    reviewPicker(box);
+    if (r.status === "done") { review = r.review; renderReview(); renderReplay(); return; }
+    if (r.status === "running") {
+      box.append(text("div", `Reviewing ${rec.names[seat]}'s play… (a few seconds to a minute)`));
+      setTimeout(() => route.view === "replay" && loadReview(false), 2000);
+    } else if (r.status.startsWith("error")) box.append(text("div", r.status, "error"));
+  } catch (e) { box.replaceChildren(text("div", e.message, "error")); }
+}
+
+function renderReview() {
+  const box = $("review"), r = review;
+  box.append(text("div", `Agreement with the AI policy: ${r.agreement === null ? "n/a" : Math.round(r.agreement * 100) + "%"} of ${r.decisions.length} decisions · result ${r.result > 0 ? "+" : ""}${r.result}`, "name"));
+  box.append(text("div", r.note, "meta"));
+  if (!r.flagged.length) box.append(text("div", "No decisions flagged — nice."));
+  for (const step of r.flagged) {
+    const d = r.decisions.find(x => x.step === step);
+    const item = document.createElement("div");
+    item.className = "item";
+    item.append(text("div", `Move ${step + 1}: played ${d.played} (${Math.round(d.p_played * 100)}%), AI preferred ${d.best} (${Math.round(d.p_best * 100)}%)`));
+    if (d.impact !== undefined) item.append(text("div", `Estimated impact: ${d.impact > 0 ? "+" : ""}${d.impact} ± ${d.impact_se} levels`, "meta"));
+    item.onclick = () => { rstep = step; renderReplay(); };
+    box.append(item);
+  }
+}
+
+$("rSlider").oninput = () => { rstep = +$("rSlider").value; renderReplay(); };
+$("rFirst").onclick = () => { rstep = 0; renderReplay(); };
+$("rPrev").onclick = () => { rstep = Math.max(0, rstep - 1); renderReplay(); };
+$("rNext").onclick = () => { rstep = Math.min(rec.moves.length, rstep + 1); renderReplay(); };
+$("rLast").onclick = () => { rstep = rec.moves.length; renderReplay(); };
+
+function boot() {
+  const h = location.hash;
+  const r = h.match(/^#replay-(\d+)$/), w = h.match(/^#watch-(\d+)-([0-3])$/), t = h.match(/^#table-(\d+)$/);
+  if (r) openReplay(+r[1]);
+  else if (w) openTable(+w[1], +w[2]);
+  else if (t) openTable(+t[1], 0);   // your own seat (the token in this tab decides which)
+  else openLobby();
+}
+window.onhashchange = boot;
+api("/api/lobby").then(d => { lobbyData = d; }).finally(boot);
 </script>
 </body>
 </html>

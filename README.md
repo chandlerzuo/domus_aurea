@@ -19,20 +19,34 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 ## Play
 
 ```bash
-.venv/bin/python -m guandan.server          # http://127.0.0.1:8770
+.venv/bin/python -m guandan.server          # http://127.0.0.1:8770, 20 tables
 ```
 
-Register a username and password, pick the partner and opponent agents
-(`heuristic`, `random`, and `dmc` once a model exists in `runs/dmc/model.pt`),
-and start a match. Click cards to select them, then Play; Hint suggests a move.
-You are seat 0, your partner sits opposite, and play passes to your right.
+- **Tables:** sit at an open table to host it. The host fills empty seats with
+  AI players (`ppo`, `dmc`, `heuristic`, `random`) or waits for friends to take
+  them (first come, first served), then starts the match. Partners sit opposite
+  (South/North vs East/West).
+- **AI suggestions:** each player chooses when sitting down whether to see the
+  policy's top three moves with probabilities on their turn. Clicking one
+  selects those cards. Deals played with suggestions on are marked in the deal
+  list.
+- **Watching:** watch any table from one seat's point of view. You only see
+  that seat's cards. Watch links look like `#watch-<table>-<seat>`.
+- **Replay and review:** every finished deal is saved (`data/games.db`) and can
+  be stepped through with all hands shown. "Review with the AI" scores each
+  of a player's decisions with the PPO policy, flags the moves it disliked, and
+  estimates what they cost by playing the rest of the deal out after the
+  player's move and after the policy's preferred move. The rollouts use the real
+  hidden hands, so the estimate is a hindsight judgement and is labelled as
+  one.
+- **Leaving:** an AI takes over a player who leaves, closes the tab for 90 s,
+  or doesn't act for 5 minutes, so the others can keep playing.
 
-Accounts live in `data/users.db` (scrypt-hashed passwords; sessions are
-in-memory HttpOnly, SameSite=Strict cookies, so restarting the server logs
-everyone out). The server listens on loopback only and rejects requests whose
-Host header isn't loopback. To play from another machine, use an SSH tunnel
-(`ssh -L 8770:127.0.0.1:8770 <host>`) instead of widening the bind. Exposing
-it more widely would need HTTPS and a proper deployment review first.
+There are no accounts. The server only listens on loopback by default, and
+refuses wildcard and public addresses. To play on a cloud machine with friends,
+reach it over an SSH tunnel or Tailscale/WireGuard; see
+[docs/DEPLOY.md](docs/DEPLOY.md), which also has the capacity measurements
+behind the 20-table default (`scripts/loadtest.py`).
 
 ## Rules implemented
 
@@ -107,9 +121,11 @@ level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt`,
 | `guandan/game.py` | `Deal` (one hand of play) and `Match` (levels, tribute, match end) |
 | `guandan/agents.py` | random and heuristic agents |
 | `guandan/evaluate.py` | duplicate-deal head-to-head |
+| `guandan/review.py` | post-game review: policy agreement and rollout impact of a player's moves |
 | `guandan/rl/` | feature encoding; DMC Q-network and trainer; policy/critic networks, imitation and PPO trainer |
-| `guandan/server/` | HTTP server, accounts, single-page UI |
+| `guandan/server/` | HTTP server, tables/host/seat logic, replay storage, single-page UI |
 | `docs/TECHNIQUES.md` | which model-training techniques fit Guandan, and the roadmap |
+| `docs/DEPLOY.md` | private cloud setup (SSH tunnel / Tailscale), capacity and table count |
 
 ## Roadmap
 
