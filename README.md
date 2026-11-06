@@ -46,7 +46,8 @@ There are no accounts. The server only listens on loopback by default, and
 refuses wildcard and public addresses. To play on a cloud machine with friends,
 either reach it over an SSH tunnel or Tailscale/WireGuard, or run the setup with
 `--public`. That puts nginx in front, with HTTPS and a shared password, so
-anyone with the password can just open the address in a browser. See
+anyone with the password can just open the address in a browser.
+[docs/SERVER_SPEC.md](docs/SERVER_SPEC.md) has the step-by-step setup. See
 [docs/DEPLOY.md](docs/DEPLOY.md), which also has the capacity measurements
 behind the 10-table default (`scripts/loadtest.py`). For a Tencent Cloud
 Lighthouse server that can't reach GitHub, build an offline bundle with
@@ -130,6 +131,7 @@ level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt`,
 | `guandan/rl/` | feature encoding; DMC Q-network and trainer; policy/critic networks, imitation and PPO trainer |
 | `guandan/server/` | HTTP server, tables/host/seat logic, replay storage, single-page UI |
 | `docs/TECHNIQUES.md` | which model-training techniques fit Guandan, and the roadmap |
+| `docs/SERVER_SPEC.md` | server spec: requirements, architecture, step-by-step setup, acceptance checks, operations |
 | `docs/DEPLOY.md` | private cloud setup (SSH tunnel / Tailscale), capacity and table count |
 | `deploy/` | `make_bundle.sh` (offline install bundle: code, models, Linux wheels), `setup_lighthouse.sh` (one-step server setup), `public_access.sh` (HTTPS + shared password via nginx) |
 

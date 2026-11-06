@@ -1,5 +1,9 @@
 # Running the game server on a cloud machine
 
+For the exact step-by-step setup with public browser access (Hong Kong Lighthouse,
+shared password), see [SERVER_SPEC.md](SERVER_SPEC.md). This page explains the
+options and the capacity measurements behind them.
+
 The game server has no accounts and always binds to loopback (or a private
 Tailscale/WireGuard address). It refuses `0.0.0.0`, `::` and public addresses.
 There are two ways to let people in:
