@@ -44,7 +44,9 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 
 There are no accounts. The server only listens on loopback by default, and
 refuses wildcard and public addresses. To play on a cloud machine with friends,
-reach it over an SSH tunnel or Tailscale/WireGuard; see
+either reach it over an SSH tunnel or Tailscale/WireGuard, or run the setup with
+`--public`. That puts nginx in front, with HTTPS and a shared password, so
+anyone with the password can just open the address in a browser. See
 [docs/DEPLOY.md](docs/DEPLOY.md), which also has the capacity measurements
 behind the 10-table default (`scripts/loadtest.py`). For a Tencent Cloud
 Lighthouse server that can't reach GitHub, build an offline bundle with
@@ -129,7 +131,7 @@ level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt`,
 | `guandan/server/` | HTTP server, tables/host/seat logic, replay storage, single-page UI |
 | `docs/TECHNIQUES.md` | which model-training techniques fit Guandan, and the roadmap |
 | `docs/DEPLOY.md` | private cloud setup (SSH tunnel / Tailscale), capacity and table count |
-| `deploy/` | `make_bundle.sh` (offline install bundle: code, models, Linux wheels) and `setup_lighthouse.sh` (one-step server setup) |
+| `deploy/` | `make_bundle.sh` (offline install bundle: code, models, Linux wheels), `setup_lighthouse.sh` (one-step server setup), `public_access.sh` (HTTPS + shared password via nginx) |
 
 ## Roadmap
 

@@ -1,14 +1,20 @@
-# Running the game server on a private cloud machine
+# Running the game server on a cloud machine
 
-The server has no accounts, so **the network is the access control**: it binds
-to loopback by default and refuses `0.0.0.0`, `::` and public addresses. Players
-reach it through an SSH tunnel or a private network (Tailscale / WireGuard).
-Nothing is published on ports 80/443, so in mainland China no ICP filing is
-needed, and strangers on the internet cannot find it.
+The game server has no accounts and always binds to loopback (or a private
+Tailscale/WireGuard address). It refuses `0.0.0.0`, `::` and public addresses.
+There are two ways to let people in:
 
-Don't open the app port (8770) in the cloud firewall, and don't put it behind a
-public reverse proxy. Doing either would make the tables, replays and the
-"take a seat" buttons available to anyone who finds the address.
+| | Private (default) | Browser access from anywhere (`--public`) |
+|---|---|---|
+| How players connect | SSH tunnel or Tailscale/WireGuard | type `https://<server-ip>` (or your domain) in any browser |
+| Who can reach it | only people you give SSH or tailnet access | anyone on the internet can reach the login prompt; only people with the shared password get past it |
+| What's public | nothing (only SSH, limited to your IP) | nginx on 443 (80 redirects to HTTPS). The game server stays on 127.0.0.1 behind it |
+| Certificate | not needed (tunnel encrypts) | self-signed for the IP (one-time browser warning), or Let's Encrypt with `--domain` |
+| Mainland China | no ICP filing needed | a public website needs an ICP filing (备案), even by IP; use a Hong Kong/Singapore region to avoid it |
+
+Never open the game port (8770) itself in the firewall, and never put the game
+behind a proxy without the password: the tables, the replays and the
+"take a seat" buttons have no login of their own.
 
 ## Capacity and the number of tables
 
@@ -77,7 +83,8 @@ around this, from most to least reliable:
    too old), 2 vCPU / 4 GB, x86-64. Mainland regions give players in China the
    lowest latency.
 2. **Firewall** (Lighthouse console): allow only **SSH (22) from your own IP**.
-   Remove the default HTTP/HTTPS rules. Never add the game port.
+   Remove the default HTTP/HTTPS rules, unless you use `--public` (then keep 80/443).
+   Never add the game port.
 3. **Build and copy the bundle** on your computer:
    ```bash
    deploy/make_bundle.sh                       # dist/guandan-<rev>.tar.gz
@@ -94,7 +101,8 @@ around this, from most to least reliable:
    checks that the port is listening **only** on the expected address and
    that the lobby answers.
    Options: `--tables N`, `--port P`, `--host tailscale` (see below),
-   `--repo URL` (install from a git mirror instead of the bundle).
+   `--repo URL` (install from a git mirror instead of the bundle), and
+   `--public` for browser access from anywhere (see below).
 5. **By hand:** use key-based SSH and set `PasswordAuthentication no` in
    `/etc/ssh/sshd_config`. The script doesn't change SSH settings, so it can't
    lock you out. Copy `/var/lib/guandan/backups` off the machine now and then.
@@ -106,7 +114,47 @@ progress; finished deals and reviews are kept.
 Useful commands: `systemctl status guandan`, `journalctl -u guandan -f`,
 `ss -ltnp | grep 8770` (must show `127.0.0.1:8770`).
 
-## How players connect
+## Browser access from anywhere (shared password)
+
+```bash
+sudo bash guandan-<rev>/deploy/setup_lighthouse.sh --public
+```
+
+On top of the normal setup, this installs nginx as the only public listener:
+
+- **HTTPS on 443**, with port 80 redirecting to it. Without a domain, the
+  certificate is self-signed for the server's public IP (found through Tencent
+  Cloud's metadata service, or pass `--public-ip`). Each browser shows a "not
+  private" warning once ("Advanced" → "Proceed"). Traffic, including the
+  password, is still encrypted.
+- **A shared login** (HTTP basic auth), checked by nginx before any request
+  reaches the game. The script generates a 20-character random password unless
+  you pass `--password`, prints it once, and saves it in
+  `/root/guandan-login.txt` (root only). Re-runs keep it. The login name
+  defaults to `guandan` (`--login-user`).
+- **A per-IP rate limit** of 10 requests/s (burst 40). That's plenty for a few
+  tabs behind one home router, and it makes guessing the password hopeless.
+- **A check before finishing:** an anonymous request must get 401 and a
+  request with the login must get 200, otherwise the script stops with an
+  error.
+
+Then, in the Lighthouse console firewall, allow TCP 80 and 443 (from anywhere,
+or only your friends' IPs if you know them). Keep SSH limited to your IP, and
+don't open 8770. Players open `https://<server-ip>`, accept the certificate
+warning once, and enter the shared login.
+
+- **Change the password:** `sudo bash /opt/guandan/app/deploy/public_access.sh --password '<new one>'`
+  (everyone has to log in again).
+- **Get rid of the certificate warning:** point a domain at the server, then run
+  `sudo bash /opt/guandan/app/deploy/public_access.sh --domain play.example.com --email you@example.com`.
+  On a mainland server the domain needs an ICP filing first.
+- **Go back to private:** `sudo rm /etc/nginx/sites-enabled/guandan && sudo systemctl stop nginx`,
+  and remove the 80/443 firewall rules.
+
+Anyone with the password can do everything a player can, including reading all
+replays. Share it like a house key, and change it if it leaks.
+
+## How players connect (private mode)
 
 **Option A: SSH tunnel** (you, or anyone you give an SSH key to)
 

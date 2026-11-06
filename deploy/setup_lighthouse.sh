@@ -18,6 +18,13 @@
 #   --branch B          git branch (default main)
 #   --pip-index URL     PyPI mirror for --repo installs (default: Tencent Cloud's mirror)
 #   --torch-index URL   CPU-only PyTorch index for --repo installs (default: download.pytorch.org)
+#   --public            also make it reachable from any browser: nginx on 443 (80 redirects)
+#                       with HTTPS and a shared password, in front of the loopback-only game
+#                       server. See deploy/public_access.sh for what it sets up.
+#     --password PW     shared password (default: keep the existing one, or generate one)
+#     --login-user NAME login name (default guandan)
+#     --public-ip IP    public IP for the self-signed certificate (default: Tencent metadata)
+#     --domain D --email E   use a Let's Encrypt certificate for domain D instead
 #   --prefix DIR        install under DIR, without root (testing)
 #   --no-systemd        don't install a service; start the server in the background (testing)
 #
@@ -37,6 +44,8 @@ PIP_INDEX=https://mirrors.cloud.tencent.com/pypi/simple
 TORCH_INDEX=https://download.pytorch.org/whl/cpu
 PREFIX=""
 SYSTEMD=1
+PUBLIC=0
+PUB_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --tables) TABLES="$2"; shift 2 ;;
@@ -48,7 +57,13 @@ while [ $# -gt 0 ]; do
     --torch-index) TORCH_INDEX="$2"; shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
     --no-systemd) SYSTEMD=0; shift ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    --public) PUBLIC=1; shift ;;
+    --password) PUB_ARGS+=(--password "$2"); shift 2 ;;
+    --login-user) PUB_ARGS+=(--user "$2"); shift 2 ;;
+    --public-ip) PUB_ARGS+=(--public-ip "$2"); shift 2 ;;
+    --domain) PUB_ARGS+=(--domain "$2"); shift 2 ;;
+    --email) PUB_ARGS+=(--email "$2"); shift 2 ;;
+    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -67,6 +82,11 @@ if [ -z "$PREFIX" ]; then
 else
   SYSTEMD=0
 fi
+if [ "$PUBLIC" = 1 ]; then
+  [ "$SYSTEMD" = 1 ] || die "--public needs the systemd install (not --prefix / --no-systemd)"
+  [ "$HOST" = 127.0.0.1 ] || die "--public puts nginx in front of the loopback server; don't combine it with --host"
+fi
+[ "$PUBLIC" = 1 ] || [ ${#PUB_ARGS[@]} -eq 0 ] || die "--password/--login-user/--public-ip/--domain/--email need --public"
 SRC=""
 if [ -z "$REPO" ]; then
   SRC=$(cd "$(dirname "$0")/.." && pwd)
@@ -225,10 +245,18 @@ assert len(lobby["tables"]) == tables, lobby
 print(f"lobby OK: {tables} tables, agents {', '.join(lobby['agents'])}")
 EOF
 
+if [ "$PUBLIC" = 1 ]; then
+  step "public browser access"
+  bash "$APP/deploy/public_access.sh" --port "$PORT" "${PUB_ARGS[@]}"
+  echo
+  echo "Upgrade: build a new bundle, copy it over, and run this script again with --public (database and password are kept)."
+  exit 0
+fi
+
 cat <<EOF
 
 Done. Guandan is running on http://$HOST:$PORT (only reachable from this machine
-or your private network).
+or your private network). For browser access from anywhere, re-run with --public.
 
 Connect from your computer:
 EOF
