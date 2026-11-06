@@ -31,13 +31,13 @@ import numpy as np
 
 from ..agents import AGENTS as BASE_AGENTS, Agent, HeuristicAgent
 from ..cards import RANKS, card_str, is_wild
-from ..game import Match, combo_label, return_options
-from ..review import label, record_move, review_deal
+from ..game import Match, return_options
+from ..review import record_move, review_deal
+from . import zh
 from .store import Store
 
 RUNS = Path(__file__).resolve().parents[2] / "runs"
 MODELS = {"dmc": RUNS / "dmc" / "model.pt", "ppo": RUNS / "ppo" / "model.pt"}
-SEAT_NAMES = ["South", "East", "North", "West"]
 IDLE_SECONDS = 90
 TURN_SECONDS = 5 * 60
 NEXT_DEAL_SECONDS = 45   # a finished deal moves on by itself after this long
@@ -90,14 +90,14 @@ def suggest(obs: dict, k: int = 3) -> list[dict]:
         from ..rl.policy import policy_step
         _, _, p = policy_step(_net("ppo"), encode_state(obs), encode_actions(obs), np.random.default_rng(0), True)
         top = np.argsort(-p)[:k]
-        return [{"move": label(legal[i]), "cards": list(legal[i].cards), "p": round(float(p[i]), 2)} for i in top]
+        return [{"move": zh.move_zh(legal[i]), "cards": list(legal[i].cards), "p": round(float(p[i]), 2)} for i in top]
     i = HeuristicAgent(0).act(obs)
-    return [{"move": label(legal[i]), "cards": list(legal[i].cards), "p": None}]
+    return [{"move": zh.move_zh(legal[i]), "cards": list(legal[i].cards), "p": None}]
 
 
 def clean_name(name: str | None, seat: int) -> str:
     name = "".join(ch for ch in (name or "").strip() if ch.isprintable())[:16]
-    return name or f"Player {SEAT_NAMES[seat]}"
+    return name or f"{zh.SEATS[seat]}家"
 
 
 @dataclass
@@ -128,6 +128,7 @@ class Game:
         self.store = store
         self.match = Match(seed=seed)
         self.deal_ids: list[int] = []
+        self.log: list[str] = []
         self._start_deal()
 
     @property
@@ -137,12 +138,24 @@ class Game:
     def _start_deal(self) -> None:
         m = self.match
         d = m.new_deal()
+        lv = m.team_levels
+        self.log.append(f"—— 第 {m.deals_played + 1} 局：打 {zh.rank_zh(d.level)}"
+                        f"（南北 {zh.rank_zh(lv[0])} / 东西 {zh.rank_zh(lv[1])}）——")
+        if m.resisted:
+            self.log.append("抗贡：两张大王都在进贡方手里，本局不进贡")
+        for t in m.tributes:
+            self.log.append(f"{self.names[t.payer]} 进贡 {zh.card_zh(t.card)} 给 {self.names[t.receiver]}")
         for t in m.pending_returns:
             if t.receiver not in self.humans:
-                m.give_return(t.receiver, self.agents[t.receiver].choose_return(d.hands[t.receiver], d.level))
+                self._return(t.receiver, self.agents[t.receiver].choose_return(d.hands[t.receiver], d.level))
         self.trick: dict[int, dict] = {}
         self.record: dict | None = None
         self.last_action = time.time()
+
+    def _return(self, seat: int, card: int) -> None:
+        payer = next(t.payer for t in self.match.pending_returns if t.receiver == seat)
+        self.match.give_return(seat, card)
+        self.log.append(f"{self.names[seat]} 还贡 {zh.card_zh(card)} 给 {self.names[payer]}")
 
     def phase(self) -> str:
         if self.match.pending_returns:
@@ -162,12 +175,13 @@ class Game:
         """A human left: an AI takes over the seat (and any return card they owed)."""
         self.humans.pop(seat, None)
         self.kinds[seat] = kind
-        self.names[seat] = f"{SEAT_NAMES[seat]} (AI)"
+        self.names[seat] = f"{zh.SEATS[seat]}·AI（代打）"
+        self.log.append(f"{zh.SEATS[seat]}家离开，由 AI 代打")
         self.agents[seat] = make_agent(kind)
         m, d = self.match, self.deal
         for t in m.pending_returns:
             if t.receiver == seat:
-                m.give_return(seat, self.agents[seat].choose_return(d.hands[seat], d.level))
+                self._return(seat, self.agents[seat].choose_return(d.hands[seat], d.level))
         self.last_action = time.time()
 
     def _apply(self, move) -> None:
@@ -180,8 +194,8 @@ class Game:
                 "leader": seat, "hands": [list(h) for h in d.hands], "kinds": list(self.kinds),
                 "names": list(self.names), "humans": sorted(self.humans),
                 "assisted": sorted(s for s in self.humans if self.humans[s]), "moves": [],
-                "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": card_str(t.card),
-                              "returned": card_str(t.returned) if t.returned is not None else None}
+                "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": zh.card_zh(t.card),
+                              "returned": zh.card_zh(t.returned) if t.returned is not None else None}
                              for t in m.tributes],
                 "resisted": m.resisted,
             }
@@ -189,13 +203,16 @@ class Game:
             self.trick = {}
         d.play(move)
         self.record["moves"].append(record_move(seat, move))
-        self.trick[seat] = {"kind": "pass" if move.is_pass else str(move.combo),
+        self.trick[seat] = {"kind": zh.kind_zh(move),
                             "cards": [card_str(c) for c in move.cards]}
-        m.log.append(f"{self.names[seat]}: {combo_label(move)}")
+        self.log.append(f"{self.names[seat]}：{zh.move_zh(move)}")
         self.last_action = time.time()
         if d.done:
             win, up = m.finish_deal()
             self.record.update(finished=list(d.finished), result={"win_team": win, "up": up})
+            order = "，".join(f"{zh.PLACES[i]} {self.names[p]}" for i, p in enumerate(d.finished))
+            self.log.append(f"本局结束：{order}。{zh.TEAMS[win]}升 {up} 级"
+                            + (f"，{zh.TEAMS[win]}赢得整场比赛！" if m.over else ""))
             self.deal_ids.append(self.store.save_deal(self.record))
 
     def step(self) -> None:
@@ -213,7 +230,7 @@ class Game:
     def give_return(self, seat: int, card: int) -> None:
         if seat not in self.waiting_on() or self.phase() != "return":
             raise ValueError("no return owed")
-        self.match.give_return(seat, int(card))
+        self._return(seat, int(card))
         self.last_action = time.time()
 
     def next_deal(self) -> None:
@@ -234,11 +251,11 @@ class Game:
             "waiting_on": self.waiting_on(), "level": RANKS[d.level],
             "team_levels": [RANKS[x] for x in m.team_levels], "level_team": m.level_team,
             "deal_no": m.deals_played + (0 if d.done else 1), "hand": [card_json(c, d.level) for c in d.hands[seat]],
-            "seats": seats, "table_play": combo_label(d.table) if d.table else None, "table_seat": d.table_seat,
-            "leading": d.leading, "log": m.log[-25:], "resisted": m.resisted, "moves_in_deal": len(d.history),
+            "seats": seats, "table_play": zh.move_zh(d.table) if d.table else None, "table_seat": d.table_seat,
+            "leading": d.leading, "log": self.log[-25:], "resisted": m.resisted, "moves_in_deal": len(d.history),
             "suggestions_on": as_player and self.humans.get(seat, False),
-            "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": card_str(t.card),
-                          "returned": card_str(t.returned) if t.returned is not None else None}
+            "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": zh.card_zh(t.card),
+                          "returned": zh.card_zh(t.returned) if t.returned is not None else None}
                          for t in m.tributes],
             "deal_ids": list(self.deal_ids),
         }
@@ -313,7 +330,7 @@ class Table:
             else:
                 if kind not in agent_kinds():
                     raise ValueError("unknown agent")
-                self.seats[seat] = Seat(kind, f"{SEAT_NAMES[seat]} (AI {kind})")
+                self.seats[seat] = Seat(kind, zh.ai_name(seat, kind))
 
     def start(self, by: int) -> None:
         with self.lock:
@@ -447,4 +464,4 @@ def run_review(record: dict, seat: int) -> dict:
     """Review worker (runs in its own process)."""
     import torch
     torch.set_num_threads(1)
-    return review_deal(record, _net("ppo"), seat=seat)
+    return review_deal(record, _net("ppo"), seat=seat, label_fn=zh.move_zh)

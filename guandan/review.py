@@ -71,7 +71,8 @@ def _rollout(deal: Deal, move: Move, actor: Actor, seed: int, seat: int) -> floa
 
 
 def review_deal(record: dict, actor: Actor, seat: int = 0, rollouts: int = 24, max_flagged: int = 6,
-                seed: int = 0) -> dict:
+                seed: int = 0, label_fn=None) -> dict:
+    label_fn = label_fn or label
     rng = np.random.default_rng(seed)
     d = start_deal(record)
     level = record["level"]
@@ -92,8 +93,8 @@ def review_deal(record: dict, actor: Actor, seat: int = 0, rollouts: int = 24, m
                 _, _, p = policy_step(actor, encode_state(obs), acts, rng, greedy=True)
                 best = int(p.argmax())
                 decisions.append({
-                    "step": step, "played": label(played), "p_played": round(float(p[idx]), 3),
-                    "best": label(legal[best]), "p_best": round(float(p[best]), 3), "agrees": best == idx,
+                    "step": step, "played": label_fn(played), "p_played": round(float(p[idx]), 3),
+                    "best": label_fn(legal[best]), "p_best": round(float(p[best]), 3), "agrees": best == idx,
                     "flag": bool(best != idx and p[idx] < 0.5 * p[best]),
                     "_deal": copy.deepcopy(d), "_moves": (played, legal[best]),
                 })

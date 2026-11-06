@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Guandan</title>
+<title>掼蛋</title>
 <style>
-  body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #0f3d2e; color: #eee; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; margin: 0; background: #0f3d2e; color: #eee; }
   header { display: flex; gap: 12px; align-items: center; padding: 8px 16px; background: #0a2a20; flex-wrap: wrap; }
   header .grow { flex: 1; }
   a { color: #e8c547; cursor: pointer; }
@@ -42,8 +42,8 @@
           display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 15px;
           font-weight: 700; user-select: none; position: relative; }
   .card.red { color: #c62828; }
-  .card.joker { font-size: 10px; }
-  .card.wild::after { content: "W"; position: absolute; top: 1px; right: 2px; font-size: 9px; color: #6a1b9a; }
+  .card.joker { font-size: 12px; writing-mode: vertical-rl; letter-spacing: 2px; }
+  .card.wild::after { content: "配"; position: absolute; top: 1px; right: 2px; font-size: 9px; color: #6a1b9a; }
   .hand.mine .card { cursor: pointer; transition: transform .08s; }
   .hand .card.sel { transform: translateY(-10px); box-shadow: 0 4px 0 #e8c547; }
   .mini .card { width: 24px; height: 36px; font-size: 11px; }
@@ -61,19 +61,18 @@
 </head>
 <body>
 <header>
-  <strong><a id="home">Guandan 掼蛋</a></strong>
+  <strong><a id="home">掼蛋</a></strong>
   <span id="where"></span>
   <span class="grow"></span>
   <span class="error" id="err"></span>
 </header>
 
 <div id="lobby">
-  <p class="meta">Sit at an open table to host it: fill empty seats with AI players or wait for friends to sit down,
-    then start. Seats are first come, first served. You can also watch any table from one player's point of view —
-    you'll only see that player's cards.</p>
+  <p class="meta">在空桌入座即成为桌主：可以用 AI 补满空位，也可以等朋友入座，然后开始对局。座位先到先得。
+    也可以观战任意一桌，从某一位玩家的视角看牌——只能看到这位玩家的手牌。</p>
   <div class="tables" id="tables"></div>
-  <h3>Recent deals</h3>
-  <table class="list"><thead><tr><th>Deal</th><th>Table</th><th>South/North</th><th>Players</th><th>AI help used by</th><th></th></tr></thead>
+  <h3>最近的牌局</h3>
+  <table class="list"><thead><tr><th>牌局</th><th>桌号</th><th>南北方得分</th><th>真人玩家</th><th>使用 AI 提示</th><th></th></tr></thead>
     <tbody id="recent"></tbody></table>
 </div>
 
@@ -89,25 +88,25 @@
           <div id="mine"></div>
           <div class="cards hand" id="hand"></div>
           <div class="controls hidden" id="hostControls">
-            <button id="startBtn">Start match</button>
+            <button id="startBtn">开始对局</button>
             <span class="meta" id="hostHint"></span>
           </div>
           <div class="controls" id="playerControls">
-            <button id="playBtn">Play</button>
-            <button id="passBtn" class="secondary">Pass</button>
-            <button id="clearBtn" class="secondary">Clear</button>
-            <button id="nextBtn" class="hidden">Next deal</button>
-            <button id="leaveBtn" class="secondary">Leave table</button>
+            <button id="playBtn">出牌</button>
+            <button id="passBtn" class="secondary">不出</button>
+            <button id="clearBtn" class="secondary">重选</button>
+            <button id="nextBtn" class="hidden">下一局</button>
+            <button id="leaveBtn" class="secondary">离开座位</button>
           </div>
           <div class="controls hidden" id="watchControls">
-            Watching from <select id="watchSeat"></select>
-            <button id="backBtn" class="secondary">Back to lobby</button>
+            观战视角 <select id="watchSeat"></select>
+            <button id="backBtn" class="secondary">返回大厅</button>
           </div>
         </div>
       </div>
     </div>
     <div>
-      <div id="sugg" class="hidden"><strong>AI suggestions</strong><div id="suggList"></div></div>
+      <div id="sugg" class="hidden"><strong>AI 提示</strong><div id="suggList"></div></div>
       <div id="deals" class="meta"></div>
       <div id="log"></div>
     </div>
@@ -142,7 +141,12 @@
 const $ = id => document.getElementById(id);
 const SUIT = { s: "♠", h: "♥", c: "♣", d: "♦" };
 const RANKS = "23456789TJQKA", SUITS = "shcd";
-const NAMES = ["South", "East", "North", "West"];
+const NAMES = ["南", "东", "北", "西"];
+const PLACES = ["头游", "二游", "三游", "末游"];
+const AGENT_NAMES = { ppo: "PPO", dmc: "DMC", heuristic: "规则", random: "随机" };
+const agentName = a => AGENT_NAMES[a] || a;
+const agentOption = a => a === "ppo" ? "PPO（推荐，最强）" : agentName(a);
+const playedText = m => m === "不出" ? "选择了不出" : `出了 ${m}`;
 const POS = ["pos-bottom", "pos-right", "pos-top", "pos-left"];  // by seat relative to the viewer
 let route = { view: "lobby" }, state = null, selected = new Set(), poll = null, lobbyData = null;
 
@@ -162,7 +166,9 @@ async function api(path, body, tableId) {
 function text(tag, t, cls) { const e = document.createElement(tag); e.textContent = t; if (cls) e.className = cls; return e; }
 function option(value, label) { const o = document.createElement("option"); o.value = value; o.textContent = label; return o; }
 const rankName = r => r === "T" ? "10" : r;
-const teamName = t => t === 0 ? "South/North" : "East/West";
+const teamName = t => t === 0 ? "南北方" : "东西方";
+const SUIT_TEXT = { s: "♠", h: "♥", c: "♣", d: "♦" };
+const cardText = l => l === "sj" ? "小王" : l === "BJ" ? "大王" : SUIT_TEXT[l[1]] + rankName(l[0]);
 
 function cardEl(label, wild) {
   const el = document.createElement("div");
@@ -170,7 +176,7 @@ function cardEl(label, wild) {
   if (label === "sj" || label === "BJ") {
     el.classList.add("joker");
     if (label === "BJ") el.classList.add("red");
-    el.textContent = label === "BJ" ? "BIG JOKER" : "small joker";
+    el.textContent = label === "BJ" ? "大王" : "小王";
   } else {
     const suit = label[1];
     if (suit === "h" || suit === "d") el.classList.add("red");
@@ -196,9 +202,9 @@ function show(view) {
 function setError(msg) { $("err").textContent = msg || ""; }
 
 function seatLabel(info, i) {
-  if (info.kind === "empty") return `${NAMES[i]}: empty`;
-  if (info.kind === "human") return `${NAMES[i]}: ${info.name}`;
-  return `${NAMES[i]}: AI (${info.kind})`;
+  if (info.kind === "empty") return `${NAMES[i]}：空位`;
+  if (info.kind === "human") return `${NAMES[i]}：${info.name}`;
+  return `${NAMES[i]}：AI（${agentName(info.kind)}）`;
 }
 
 // ---- lobby -----------------------------------------------------------------
@@ -206,7 +212,7 @@ function seatLabel(info, i) {
 async function openLobby() {
   route = { view: "lobby" };
   show("lobby");
-  $("where").textContent = "Lobby";
+  $("where").textContent = "大厅";
   const refresh = async () => {
     try { lobbyData = await api("/api/lobby"); renderLobby(); } catch (e) { setError(e.message); }
   };
@@ -221,35 +227,35 @@ function renderLobby() {
   for (const t of lobbyData.tables) {
     const c = document.createElement("div");
     c.className = "tcard";
-    const status = { open: "Open", waiting: `Waiting to start (host: ${t.host === null ? "-" : t.seats[t.host].name})`,
-                     playing: `Playing — deal ${t.deal_no}, levels ${t.team_levels ? t.team_levels.join(" / ") : ""}` }[t.status];
-    c.append(text("h2", `Table ${t.id}`), text("div", status, "meta"));
+    const status = { open: "空桌", waiting: `等待开局（桌主：${t.host === null ? "-" : t.seats[t.host].name}）`,
+                     playing: `对局中——第 ${t.deal_no} 局，级数 南北 ${t.team_levels ? rankName(t.team_levels[0]) : ""} / 东西 ${t.team_levels ? rankName(t.team_levels[1]) : ""}` }[t.status];
+    c.append(text("h2", `${t.id} 号桌`), text("div", status, "meta"));
     t.seats.forEach((x, i) => c.append(text("div", seatLabel(x, i), "seatline")));
     const row = document.createElement("div");
     row.className = "row";
     if (token(t.id) && t.status !== "open") {
-      const b = text("button", "Back to my seat");
+      const b = text("button", "回到我的座位");
       b.onclick = () => { location.hash = `table-${t.id}`; };
       row.append(b);
     } else if (t.status !== "playing") {
       const empty = t.seats.map((x, i) => x.kind === "empty" ? i : -1).filter(i => i >= 0);
       const sel = document.createElement("select");
-      empty.forEach(i => sel.append(option(i, NAMES[i])));
+      empty.forEach(i => sel.append(option(i, NAMES[i] + "家")));
       const name = document.createElement("input");
-      name.type = "text"; name.placeholder = "your name"; name.maxLength = 16; name.size = 10;
+      name.type = "text"; name.placeholder = "你的名字"; name.maxLength = 16; name.size = 10;
       name.value = localStorage.getItem("name") || "";
       const lab = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      lab.append(cb, document.createTextNode(" AI suggestions"));
-      const b = text("button", t.status === "open" ? "Sit & host" : "Sit down");
+      lab.append(cb, document.createTextNode(" AI 提示"));
+      const b = text("button", t.status === "open" ? "入座并当桌主" : "入座");
       b.onclick = () => sit(t.id, +sel.value, name.value, cb.checked);
       if (empty.length) row.append(sel, name, lab, b);
     }
     if (t.status !== "open") {
       const wsel = document.createElement("select");
-      NAMES.forEach((n, i) => wsel.append(option(i, n)));
-      const w = text("button", "Watch", "secondary");
+      NAMES.forEach((n, i) => wsel.append(option(i, n + "家视角")));
+      const w = text("button", "观战", "secondary");
       w.onclick = () => { location.hash = `watch-${t.id}-${wsel.value}`; };
       row.append(wsel, w);
     }
@@ -260,10 +266,10 @@ function renderLobby() {
   tb.replaceChildren();
   for (const d of lobbyData.recent) {
     const tr = document.createElement("tr");
-    tr.append(text("td", `#${d.id} (deal ${d.deal_no})`), text("td", d.table), text("td", d.result > 0 ? `+${d.result}` : `${d.result}`),
-              text("td", d.humans.map(s => NAMES[s]).join(", ")), text("td", d.assisted.map(s => NAMES[s]).join(", ") || "none"));
+    tr.append(text("td", `#${d.id}（第 ${d.deal_no} 局）`), text("td", `${d.table} 号桌`), text("td", d.result > 0 ? `+${d.result}` : `${d.result}`),
+              text("td", d.humans.map(s => NAMES[s] + "家").join("、") || "无"), text("td", d.assisted.map(s => NAMES[s] + "家").join("、") || "无"));
     const td = document.createElement("td");
-    const a = text("a", "replay & review");
+    const a = text("a", "回放与复盘");
     a.onclick = () => { location.hash = `replay-${d.id}`; };
     td.append(a);
     tr.append(td);
@@ -287,7 +293,7 @@ function openTable(tid, watchSeat) {
   route = { view: "game", table: tid, seat: watchSeat };
   show("game");
   selected.clear();
-  $("watchSeat").replaceChildren(...NAMES.map((n, i) => option(i, n)));
+  $("watchSeat").replaceChildren(...NAMES.map((n, i) => option(i, n + "家")));
   $("watchSeat").value = watchSeat;
   refreshTable();
   poll = setInterval(refreshTable, 700);
@@ -299,7 +305,7 @@ async function refreshTable() {
     const s = await api(`/api/table/${table}/state?seat=${seat}`, undefined, table);
     if (token(table) && s.my_seat === null) {
       sessionStorage.removeItem("seat-" + table);
-      setError("Your seat was released (left, idle, or timed out).");
+      setError("你的座位已被释放（离开、长时间无响应或超时）。");
     }
     if (s.status === "open") { if (location.hash) location.hash = ""; return openLobby(); }
     state = s;
@@ -311,7 +317,7 @@ const seated = () => state.my_seat !== null && state.my_seat !== undefined;
 
 function render() {
   const s = state;
-  $("where").textContent = `Table ${s.table} — ` + (seated() ? `you are ${NAMES[s.my_seat]}` + (s.host === s.my_seat ? " (host)" : "") : "watching");
+  $("where").textContent = `${s.table} 号桌——` + (seated() ? `你坐${NAMES[s.my_seat]}家` + (s.host === s.my_seat ? "（桌主）" : "") : "观战中");
   $("playerControls").classList.toggle("hidden", !seated());
   $("watchControls").classList.toggle("hidden", seated());
   $("hostControls").classList.toggle("hidden", !(seated() && s.status === "waiting" && s.host === s.my_seat));
@@ -327,33 +333,33 @@ function renderWaiting() {
     el.replaceChildren();
     if (rel !== 0) el.classList.remove("to_act");
     const info = s.seats_info[seat];
-    el.append(text("div", seatLabel(info, seat) + (seat === s.host ? " · host" : "") + (seat % 2 === v % 2 && seat !== v ? " (partner)" : ""), "name"));
+    el.append(text("div", seatLabel(info, seat) + (seat === s.host ? " · 桌主" : "") + (seat % 2 === v % 2 && seat !== v ? "（对家）" : ""), "name"));
     if (isHost && info.kind !== "human") {
       const row = document.createElement("div");
       row.className = "controls";
       if (info.kind === "empty") {
         const sel = document.createElement("select");
-        lobbyAgents().forEach(a => sel.append(option(a, a)));
+        lobbyAgents().forEach(a => sel.append(option(a, agentOption(a))));
         sel.value = ["ppo", "dmc"].find(a => lobbyAgents().includes(a)) || "heuristic";
-        const b = text("button", "Add AI", "secondary");
+        const b = text("button", "加入 AI", "secondary");
         b.onclick = () => act("seat", { seat, kind: sel.value });
         row.append(sel, b);
       } else {
-        const b = text("button", "Remove AI", "secondary");
+        const b = text("button", "移除 AI", "secondary");
         b.onclick = () => act("seat", { seat, kind: "empty" });
         row.append(b);
       }
       el.append(row);
     } else if (info.kind === "empty") {
-      el.append(text("div", "waiting for someone to sit…", "meta"));
+      el.append(text("div", "等待玩家入座…", "meta"));
     }
   }
   $("hand").replaceChildren();
   const full = s.seats_info.every(x => x.kind !== "empty");
   $("startBtn").disabled = !full;
-  $("hostHint").textContent = full ? "All seats filled." : "Fill empty seats with AI, or wait for people to sit.";
-  $("center").replaceChildren(text("div", isHost ? "You are the host. Start when every seat is filled."
-    : `Waiting for the host (${s.seats_info[s.host].name}) to start…`, "banner"));
+  $("hostHint").textContent = full ? "座位已满。" : "用 AI 补满空位，或等待其他玩家入座。";
+  $("center").replaceChildren(text("div", isHost ? "你是桌主。座位坐满后即可开始。"
+    : `等待桌主（${s.seats_info[s.host].name}）开始…`, "banner"));
   for (const id of ["playBtn", "passBtn", "clearBtn"]) $(id).disabled = true;
   $("nextBtn").classList.add("hidden");
   $("sugg").classList.add("hidden");
@@ -366,13 +372,13 @@ function renderSeat(p, el) {
   const s = state;
   el.replaceChildren();
   el.classList.toggle("to_act", p.to_act);
-  el.append(text("div", p.name + (p.seat % 2 === s.view_seat % 2 ? " (partner)" : ""), "name"));
-  el.append(text("div", `${NAMES[p.seat]} · ${p.cards_left} cards` + (p.place ? ` · finished #${p.place}` : ""), "meta"));
+  el.append(text("div", p.name + (p.seat % 2 === s.view_seat % 2 ? "（对家）" : ""), "name"));
+  el.append(text("div", `${NAMES[p.seat]}家 · 剩 ${p.cards_left} 张` + (p.place ? ` · ${PLACES[p.place - 1]}` : ""), "meta"));
   if (p.last) {
     el.append(text("div", p.last.kind, "meta"));
     if (p.last.cards.length) el.append(cardsRow(p.last.cards));
   }
-  if (s.revealed && s.revealed[p.seat]) el.append(text("div", "left in hand:", "meta"), cardsRow(s.revealed[p.seat]));
+  if (s.revealed && s.revealed[p.seat]) el.append(text("div", "剩余手牌：", "meta"), cardsRow(s.revealed[p.seat]));
 }
 
 function renderPlaying() {
@@ -384,10 +390,10 @@ function renderPlaying() {
   const me = s.seats[v];
   $("pos-bottom").classList.toggle("to_act", me.to_act);
   const mine = $("mine");
-  mine.replaceChildren(text("span", `${me.name}${s.as_player ? " — you" : " (watching)"} · ${NAMES[v]}`, "name"),
-                       text("span", `  ${me.cards_left} cards` + (me.place ? ` · finished #${me.place}` : ""), "meta"));
+  mine.replaceChildren(text("span", `${me.name}${s.as_player ? "（你）" : "（观战视角）"} · ${NAMES[v]}家`, "name"),
+                       text("span", `  剩 ${me.cards_left} 张` + (me.place ? ` · ${PLACES[me.place - 1]}` : ""), "meta"));
   if (me.last) {
-    mine.append(text("div", "played: " + me.last.kind, "meta"));
+    mine.append(text("div", "出牌：" + me.last.kind, "meta"));
     if (me.last.cards.length) mine.append(cardsRow(me.last.cards));
   }
 
@@ -395,20 +401,20 @@ function renderPlaying() {
   const myReturn = s.as_player && s.phase === "return" && s.waiting_on.includes(v);
   const c = $("center");
   c.replaceChildren();
-  c.append(text("div", `Deal ${s.deal_no} · playing ${rankName(s.level)}`, "banner"));
-  c.append(text("div", `Levels — South/North: ${s.team_levels[0]}  ·  East/West: ${s.team_levels[1]}`));
-  c.append(text("div", "Hearts of the level rank are wild (marked W).", "meta"));
+  c.append(text("div", `第 ${s.deal_no} 局 · 打 ${rankName(s.level)}`, "banner"));
+  c.append(text("div", `级数——南北方：${rankName(s.team_levels[0])}  ·  东西方：${rankName(s.team_levels[1])}`));
+  c.append(text("div", `红桃 ${rankName(s.level)} 是逢人配（标“配”），可以当任意非王牌使用。`, "meta"));
   for (const t of s.tributes) {
-    c.append(text("div", `${s.seats[t.payer].name} paid ${t.card} to ${s.seats[t.receiver].name}` + (t.returned ? `, got back ${t.returned}` : ""), "meta"));
+    c.append(text("div", `${s.seats[t.payer].name} 进贡 ${t.card} 给 ${s.seats[t.receiver].name}` + (t.returned ? `，还贡 ${t.returned}` : ""), "meta"));
   }
-  if (s.resisted) c.append(text("div", "Tribute resisted (both big jokers).", "meta"));
+  if (s.resisted) c.append(text("div", "抗贡（两张大王都在进贡方手里）。", "meta"));
   const turn = s.seats.find(x => x.to_act);
   let msg = {
-    human_turn: myTurn ? (s.leading ? "Your lead — play any combination." : "Your turn — beat the table or pass.") : `${turn ? turn.name : ""} is thinking…`,
-    ai_turn: `${turn ? turn.name : "AI"} is thinking…`,
-    return: myReturn ? "Return a card of rank 10 or lower to the player who paid you tribute." : "Waiting for a return card…",
-    deal_over: s.result ? `Deal over: ${teamName(s.result.win_team)} go up ${s.result.up}. Order: ${s.result.order.join(", ")}. Next deal in ${s.next_in}s` : "",
-    match_over: `Match over — ${teamName(s.match_winner)} win!`,
+    human_turn: myTurn ? (s.leading ? "轮到你首出——任意牌型都可以。" : "轮到你——压过桌上的牌，或者不出。") : `${turn ? turn.name : ""} 思考中…`,
+    ai_turn: `${turn ? turn.name : "AI"} 思考中…`,
+    return: myReturn ? "请还贡：选一张 10 或以下的牌还给进贡的玩家。" : "等待还贡…",
+    deal_over: s.result ? `本局结束：${teamName(s.result.win_team)}升 ${s.result.up} 级。名次：${s.result.order.map((n, i) => PLACES[i] + " " + n).join("，")}。${s.next_in} 秒后开始下一局` : "",
+    match_over: `整场比赛结束——${teamName(s.match_winner)}获胜！`,
   }[s.phase];
   c.append(text("div", msg, "banner"));
 
@@ -424,7 +430,7 @@ function renderPlaying() {
     hand.append(el);
   }
   if (s.as_player) {
-    $("playBtn").textContent = myReturn ? "Return card" : "Play";
+    $("playBtn").textContent = myReturn ? "还贡" : "出牌";
     $("playBtn").disabled = !(myTurn || myReturn) || selected.size === 0;
     $("passBtn").disabled = !myTurn || s.leading;
     $("clearBtn").disabled = false;
@@ -442,7 +448,7 @@ function renderPlaying() {
   const deals = $("deals");
   deals.replaceChildren();
   if (s.deal_ids.length) {
-    deals.append("Finished deals this match (opens in a new tab): ");
+    deals.append("本场已完成的牌局（新标签页打开回放）：");
     s.deal_ids.forEach((id, i) => { const a = text("a", `#${i + 1}`); a.onclick = () => window.open(`#replay-${id}`, "_blank"); deals.append(a, " "); });
   }
   $("log").textContent = s.log.join("\n");
@@ -460,7 +466,7 @@ async function act(cmd, body) {
 
 $("playBtn").onclick = () => {
   if (state.phase === "return") {
-    if (selected.size !== 1) return setError("pick exactly one card");
+    if (selected.size !== 1) return setError("请只选一张牌");
     act("return", { card: [...selected][0] });
   } else act("play", { cards: [...selected] });
   selected.clear();
@@ -494,7 +500,7 @@ async function openReplay(id) {
   review = null;
   rstep = 0;
   reviewSeat = rec.humans.length ? rec.humans[0] : 0;
-  $("where").textContent = `Replay — deal #${id} (table ${rec.table}, deal ${rec.deal_no} of its match)`;
+  $("where").textContent = `回放——牌局 #${id}（${rec.table} 号桌，本场第 ${rec.deal_no} 局）`;
   $("rSlider").max = rec.moves.length;
   renderReplay();
   loadReview(false);
@@ -509,7 +515,7 @@ function handsAt(k) {
   return hands;
 }
 
-function moveText(m) { const [seat, cards, kind] = m; return kind === 0 ? `${rec.names[seat]}: pass` : `${rec.names[seat]}: ${cards.map(cardLabel).join(" ")}`; }
+function moveText(m) { const [seat, cards, kind] = m; return kind === 0 ? `${rec.names[seat]}：不出` : `${rec.names[seat]}：${cards.map(c => cardText(cardLabel(c))).join(" ")}`; }
 
 function renderReplay() {
   const k = rstep, hands = handsAt(k);
@@ -522,30 +528,30 @@ function renderReplay() {
     const el = $("r" + s);
     el.replaceChildren();
     el.classList.toggle("to_act", k < rec.moves.length && rec.moves[k][0] === s);
-    const out = hands[s].length === 0 && rec.finished.includes(s) ? ` · finished #${rec.finished.indexOf(s) + 1}` : "";
-    el.append(text("div", `${rec.names[s]}` + (rec.humans.includes(s) ? ` · ${NAMES[s]}` : "") + out, "name"));
+    const out = hands[s].length === 0 && rec.finished.includes(s) ? ` · ${PLACES[rec.finished.indexOf(s)]}` : "";
+    el.append(text("div", `${rec.names[s]}` + (rec.humans.includes(s) ? ` · ${NAMES[s]}家` : "") + out, "name"));
     const sorted = [...hands[s]].sort((a, b) => sortKey(a, rec.level) - sortKey(b, rec.level));
     const row = document.createElement("div");
     row.className = "cards mini";
     for (const c of sorted) row.append(cardEl(cardLabel(c), c % 54 === 13 + rec.level));
     el.append(row);
     if (trick[s]) {
-      el.append(text("div", "played" + (trick[s][2] === 0 ? ": pass" : ":"), "meta"));
+      el.append(text("div", trick[s][2] === 0 ? "不出" : "出牌：", "meta"));
       if (trick[s][1].length) el.append(cardsRow(trick[s][1].map(cardLabel)));
     }
   }
   const c = $("rcenter");
-  c.replaceChildren(text("div", `Playing ${rankName(RANKS[rec.level])} · levels ${RANKS[rec.team_levels[0]]}/${RANKS[rec.team_levels[1]]}`, "banner"));
-  for (const t of rec.tributes) c.append(text("div", `${rec.names[t.payer]} paid ${t.card} to ${rec.names[t.receiver]}` + (t.returned ? `, got back ${t.returned}` : ""), "meta"));
-  if (k < rec.moves.length) c.append(text("div", "Next: " + moveText(rec.moves[k])));
-  else c.append(text("div", `Result: ${teamName(rec.result.win_team)} up ${rec.result.up}`, "banner"));
+  c.replaceChildren(text("div", `打 ${rankName(RANKS[rec.level])} · 级数 南北 ${rankName(RANKS[rec.team_levels[0]])} / 东西 ${rankName(RANKS[rec.team_levels[1]])}`, "banner"));
+  for (const t of rec.tributes) c.append(text("div", `${rec.names[t.payer]} 进贡 ${t.card} 给 ${rec.names[t.receiver]}` + (t.returned ? `，还贡 ${t.returned}` : ""), "meta"));
+  if (k < rec.moves.length) c.append(text("div", "下一手：" + moveText(rec.moves[k])));
+  else c.append(text("div", `结果：${teamName(rec.result.win_team)}升 ${rec.result.up} 级`, "banner"));
   if (decision) {
-    c.append(text("div", `${rec.names[reviewSeat]} played ${decision.played} (policy ${Math.round(decision.p_played * 100)}%)`));
-    if (!decision.agrees) c.append(text("div", `AI preferred ${decision.best} (${Math.round(decision.p_best * 100)}%)` +
-      (decision.impact !== undefined ? ` · est. impact ${decision.impact > 0 ? "+" : ""}${decision.impact} ± ${decision.impact_se} levels` : "")));
+    c.append(text("div", `${rec.names[reviewSeat]} ${playedText(decision.played)}（AI 概率 ${Math.round(decision.p_played * 100)}%）`));
+    if (!decision.agrees) c.append(text("div", `AI 更倾向 ${decision.best}（${Math.round(decision.p_best * 100)}%）` +
+      (decision.impact !== undefined ? ` · 估计影响 ${decision.impact > 0 ? "+" : ""}${decision.impact} ± ${decision.impact_se} 级` : "")));
   }
   $("rSlider").value = k;
-  $("rStep").textContent = `move ${k} / ${rec.moves.length}`;
+  $("rStep").textContent = `第 ${k} / ${rec.moves.length} 手`;
   const flagged = new Set(review ? review.flagged : []);
   $("moves").replaceChildren(...rec.moves.map((m, i) => {
     const d = text("div", `${String(i + 1).padStart(3)}. ${moveText(m)}`);
@@ -560,12 +566,12 @@ function reviewPicker(box) {
   const row = document.createElement("div");
   row.className = "controls";
   const sel = document.createElement("select");
-  (rec.humans.length ? rec.humans : [0, 1, 2, 3]).forEach(s => sel.append(option(s, `${rec.names[s]} (${NAMES[s]})`)));
+  (rec.humans.length ? rec.humans : [0, 1, 2, 3]).forEach(s => sel.append(option(s, `${rec.names[s]}（${NAMES[s]}家）`)));
   sel.value = reviewSeat;
   sel.onchange = () => { reviewSeat = +sel.value; review = null; renderReplay(); loadReview(false); };
-  const b = text("button", "Review with the AI");
+  const b = text("button", "用 AI 复盘");
   b.onclick = () => loadReview(true);
-  row.append("Player:", sel, b);
+  row.append("玩家：", sel, b);
   box.append(row);
 }
 
@@ -579,23 +585,23 @@ async function loadReview(start) {
     reviewPicker(box);
     if (r.status === "done") { review = r.review; renderReview(); renderReplay(); return; }
     if (r.status === "running") {
-      box.append(text("div", `Reviewing ${rec.names[seat]}'s play… (a few seconds to a minute)`));
+      box.append(text("div", `正在复盘 ${rec.names[seat]} 的打法…（几秒到一分钟）`));
       setTimeout(() => route.view === "replay" && loadReview(false), 2000);
-    } else if (r.status.startsWith("error")) box.append(text("div", r.status, "error"));
+    } else if (r.status.startsWith("error")) box.append(text("div", "复盘失败：" + r.status.slice(6), "error"));
   } catch (e) { box.replaceChildren(text("div", e.message, "error")); }
 }
 
 function renderReview() {
   const box = $("review"), r = review;
-  box.append(text("div", `Agreement with the AI policy: ${r.agreement === null ? "n/a" : Math.round(r.agreement * 100) + "%"} of ${r.decisions.length} decisions · result ${r.result > 0 ? "+" : ""}${r.result}`, "name"));
-  box.append(text("div", r.note, "meta"));
-  if (!r.flagged.length) box.append(text("div", "No decisions flagged — nice."));
+  box.append(text("div", `与 AI 一致率：${r.agreement === null ? "—" : Math.round(r.agreement * 100) + "%"}（共 ${r.decisions.length} 次决策）· 本局结果 ${r.result > 0 ? "+" : ""}${r.result} 级`, "name"));
+  box.append(text("div", "影响估计是用真实的四家手牌把剩下的牌打完得出的，属于“事后诸葛亮”式的判断，仅供参考。", "meta"));
+  if (!r.flagged.length) box.append(text("div", "没有被标记的出牌——打得不错！"));
   for (const step of r.flagged) {
     const d = r.decisions.find(x => x.step === step);
     const item = document.createElement("div");
     item.className = "item";
-    item.append(text("div", `Move ${step + 1}: played ${d.played} (${Math.round(d.p_played * 100)}%), AI preferred ${d.best} (${Math.round(d.p_best * 100)}%)`));
-    if (d.impact !== undefined) item.append(text("div", `Estimated impact: ${d.impact > 0 ? "+" : ""}${d.impact} ± ${d.impact_se} levels`, "meta"));
+    item.append(text("div", `第 ${step + 1} 手：${playedText(d.played)}（${Math.round(d.p_played * 100)}%），AI 更倾向 ${d.best}（${Math.round(d.p_best * 100)}%）`));
+    if (d.impact !== undefined) item.append(text("div", `估计影响：${d.impact > 0 ? "+" : ""}${d.impact} ± ${d.impact_se} 级（负数表示你的出法更差）`, "meta"));
     item.onclick = () => { rstep = step; renderReplay(); };
     box.append(item);
   }

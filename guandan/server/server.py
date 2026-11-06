@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 from ..review import lead_flags
 from .store import Store
 from .tables import Lobby, agent_kinds
+from .zh import error_zh
 
 STATIC = Path(__file__).parent / "static"
 TAILSCALE = ipaddress.ip_network("100.64.0.0/10")
@@ -64,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route(self, method: str) -> None:
         if (self.headers.get("Host") or "") not in self.allowed_hosts:
-            return self._json(403, {"error": "bad host"})
+            return self._json(403, {"error": error_zh("bad host")})
         url = urlsplit(self.path)
         parts = url.path.strip("/").split("/")
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
@@ -72,18 +73,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if method == "POST":
                 if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
-                    return self._json(415, {"error": "JSON required"})
+                    return self._json(415, {"error": error_zh("JSON required")})
                 length = int(self.headers.get("Content-Length") or 0)
                 if length > 64 * 1024:
-                    return self._json(413, {"error": "request too large"})
+                    return self._json(413, {"error": error_zh("request too large")})
                 body = json.loads(self.rfile.read(length) or b"{}")
             return self._dispatch(method, parts, query, body)
         except PermissionError as e:
-            self._json(409, {"error": str(e)})
+            self._json(409, {"error": error_zh(str(e))})
         except KeyError as e:
-            self._json(404, {"error": str(e).strip("'\"")})
+            self._json(404, {"error": error_zh(str(e).strip("'\""))})
         except (ValueError, TypeError) as e:
-            self._json(400, {"error": str(e)})
+            self._json(400, {"error": error_zh(str(e))})
 
     def do_GET(self):
         self._route("GET")

@@ -142,7 +142,7 @@ reachable from the server (e.g. private Gitee/CNB) using Tencent's PyPI mirror.
 | A3 | `curl -sk -o /dev/null -w '%{http_code}\n' https://<server-ip>/` from another machine | `401` |
 | A4 | `curl -s -o /dev/null -w '%{http_code}\n' http://<server-ip>/` | `301` (redirect to HTTPS) |
 | A5 | `curl -s --max-time 5 http://<server-ip>:8770/` from another machine | connection fails (port closed) |
-| A6 | Browser with the login | Lobby shows 10 tables |
+| A6 | Browser with the login | Lobby (大厅) shows 10 tables (1 号桌 … 10 号桌), all text in Chinese |
 | A7 | Sit at a table, add 3 AIs, start | Cards are dealt and the AIs move about once a second |
 | A8 | Second browser (another device) | Can watch the table from one seat, seeing only that seat's cards |
 | A9 | Finish a deal, open its replay, press "Review with the AI" | Replay steps through the deal; the review appears within about a minute |

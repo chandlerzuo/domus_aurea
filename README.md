@@ -22,6 +22,10 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m guandan.server          # http://127.0.0.1:8770, 10 tables
 ```
 
+The web app is in Chinese (掼蛋 terms: 逢人配, 进贡/还贡, 头游…末游); the
+Chinese text lives in `guandan/server/zh.py` and the page script, while the
+engine and training code stay in English.
+
 - **Tables:** sit at an open table to host it. The host fills empty seats with
   AI players (`ppo`, `dmc`, `heuristic`, `random`) or waits for friends to take
   them (first come, first served), then starts the match. Partners sit opposite
@@ -129,7 +133,7 @@ level rank. Progress goes to `runs/dmc/metrics.jsonl`; only `model.pt`,
 | `guandan/evaluate.py` | duplicate-deal head-to-head |
 | `guandan/review.py` | post-game review: policy agreement and rollout impact of a player's moves |
 | `guandan/rl/` | feature encoding; DMC Q-network and trainer; policy/critic networks, imitation and PPO trainer |
-| `guandan/server/` | HTTP server, tables/host/seat logic, replay storage, single-page UI |
+| `guandan/server/` | HTTP server, tables/host/seat logic, replay storage, Chinese UI text (`zh.py`), single-page UI |
 | `docs/TECHNIQUES.md` | which model-training techniques fit Guandan, and the roadmap |
 | `docs/SERVER_SPEC.md` | server spec: requirements, architecture, step-by-step setup, acceptance checks, operations |
 | `docs/DEPLOY.md` | private cloud setup (SSH tunnel / Tailscale), capacity and table count |
