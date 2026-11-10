@@ -174,10 +174,10 @@
 
 <div id="lobby" hidden>
   <h1><span class="themeTitle">三國風雲</span>　第 <span id="lobbyNo">1</span> 桌</h1>
-  <div>① 入座（第一位入座的人是桌主）→ ② 桌主選主題 → ③ 大家選該主題的主帥 → 桌主開始遊戲，空位可設為電腦。</div>
-  <fieldset><legend>① 座位</legend><div id="seatRows"></div><div id="lobbyWait" class="err" style="color:#6b4f2a"></div></fieldset>
+  <div>① 成為桌主 → ② 桌主選主題 → ③ 在座位上選主題中的角色入座 → 桌主開始遊戲，空位可設為電腦。</div>
+  <fieldset><legend>① 桌主</legend><div id="ownerBox"></div></fieldset>
   <fieldset><legend>② 主題（桌主選擇）</legend><div id="themePick"></div><div id="themeNote"></div></fieldset>
-  <fieldset id="heroPick" hidden><legend>③ 選擇你的主帥</legend><div class="heroes row"></div></fieldset>
+  <fieldset><legend>③ 座位與角色</legend><div id="seatRows"></div><div id="lobbyWait" class="err" style="color:#6b4f2a"></div></fieldset>
   <fieldset id="lobbyHost" hidden><legend>房主設定</legend>
     <div class="row">電腦速度 <select id="onSpeed"><option value="900">慢（每步 5 秒）</option><option value="450" selected>中（每步 3 秒）</option><option value="120">快（每步 2 秒）</option></select></div>
     <div class="row" style="justify-content:flex-end"><button id="lobbyFill">空位全部設為電腦</button><button id="lobbyStart" class="pri" style="font-size:20px;padding:10px 28px">開始遊戲</button></div>

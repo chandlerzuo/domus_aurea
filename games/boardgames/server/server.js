@@ -234,15 +234,26 @@ async function handleApi(req, res, url) {
   const me = find(token);
 
   if (url.pathname === '/api/join') {
-    const t = Number.isInteger(body.table) ? tables[body.table] : null, k = body.seat;
+    const t = Number.isInteger(body.table) ? tables[body.table] : null;
     if (!t) return json(res, 400, { error: '桌號錯誤' });
     if (t.started) return json(res, 409, { error: '遊戲已經開始' });
     if (me) return json(res, 409, { error: '你已經有座位了' });
-    if (!Number.isInteger(k) || !t.seats[k] || t.seats[k].state !== 'open') return json(res, 409, { error: '這個座位已有人' });
-    // 入座時還沒有主帥：先入座（第一位成為房主）→ 房主選主題 → 大家再選該主題的主帥
+    const firstOwner = !t.seats.some(s => s.state === 'human');
+    let k = body.seat, cmd = null;
+    if (firstOwner) {
+      // ① 成為桌主：不選座位也不選主帥（自動坐第一個空位）；主題由桌主接著選
+      k = t.seats.findIndex(s => s.state === 'open');
+      if (k < 0) return json(res, 409, { error: '這桌已經坐滿了' });
+    } else {
+      // 其他人要等桌主選好主題，才能挑一個空位與該主題的主帥一起入座
+      if (!t.themeChosen) return json(res, 409, { error: '請等桌主選擇主題' });
+      cmd = body.cmd;
+      if (!Number.isInteger(k) || !t.seats[k] || t.seats[k].state !== 'open') return json(res, 409, { error: '這個座位已有人' });
+      if (!freeCmd(t).includes(cmd)) return json(res, 409, { error: '這位主帥已被選走' });
+    }
     const tk = crypto.randomBytes(16).toString('hex');
-    t.seats[k] = { state: 'human', cmd: null, token: tk };
-    if (!t.host || !t.seats.some(s => s.token === t.host)) t.host = tk;
+    t.seats[k] = { state: 'human', cmd, token: tk };
+    if (firstOwner) t.host = tk;
     broadcastLobby(t);
     return json(res, 200, { token: tk, table: t.id });
   }
