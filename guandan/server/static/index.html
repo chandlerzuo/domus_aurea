@@ -338,12 +338,9 @@ function renderWaiting() {
       const row = document.createElement("div");
       row.className = "controls";
       if (info.kind === "empty") {
-        const sel = document.createElement("select");
-        lobbyAgents().forEach(a => sel.append(option(a, agentOption(a))));
-        sel.value = ["ppo+", "ppo", "dmc"].find(a => lobbyAgents().includes(a)) || "heuristic";
         const b = text("button", "加入 AI", "secondary");
-        b.onclick = () => act("seat", { seat, kind: sel.value });
-        row.append(sel, b);
+        b.onclick = () => act("seat", { seat, kind: lobbyAgents()[0] });
+        row.append(b);
       } else {
         const b = text("button", "移除 AI", "secondary");
         b.onclick = () => act("seat", { seat, kind: "empty" });

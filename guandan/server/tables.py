@@ -55,16 +55,16 @@ def search_available() -> bool:
     return fast.AVAILABLE and os.environ.get("GUANDAN_SEARCH", "1") != "0"
 
 
-def agent_kinds() -> list[str]:
-    kinds = sorted(BASE_AGENTS) + [k for k, p in MODELS.items() if p.exists()]
-    if "ppo" in kinds and search_available():
-        kinds.append("ppo+")
-    return kinds
-
-
 def default_ai() -> str:
-    kinds = agent_kinds()
-    return next((k for k in ("ppo+", "ppo", "dmc") if k in kinds), "heuristic")
+    """The one AI the server offers: ppo+ (search), else the best thing available."""
+    kinds = [k for k, p in MODELS.items() if p.exists()]
+    if "ppo" in kinds and search_available():
+        return "ppo+"
+    return next((k for k in ("ppo", "dmc") if k in kinds), "heuristic")
+
+
+def agent_kinds() -> list[str]:
+    return [default_ai()]
 
 
 def _net(kind: str):

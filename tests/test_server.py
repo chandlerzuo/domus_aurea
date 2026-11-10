@@ -10,7 +10,10 @@ from guandan.server.server import check_bind, make_server
 
 
 @pytest.fixture()
-def base(tmp_path):
+def base(tmp_path, monkeypatch):
+    # The server only offers one AI; these tests use the cheap ones to keep games fast.
+    from guandan.server import tables
+    monkeypatch.setattr(tables, "agent_kinds", lambda: ["heuristic", "random", "ppo+"])
     srv = make_server("127.0.0.1", 0, tmp_path / "games.db", tables=2, ai_delay=0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
@@ -167,3 +170,8 @@ def test_search_ai_is_offered_and_plays_a_deal(base):
 def test_default_ai_is_the_search_player_when_available():
     from guandan.server.tables import default_ai, search_available
     assert default_ai() == ("ppo+" if search_available() else "ppo")
+
+
+def test_server_offers_a_single_ai():
+    from guandan.server.tables import agent_kinds, default_ai
+    assert agent_kinds() == [default_ai()]
