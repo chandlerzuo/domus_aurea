@@ -31,6 +31,9 @@ done
 
 PY="${PYTHON:-.venv/bin/python}"
 [ -x "$PY" ] || PY=python3
+# Make PY absolute (repo root, after the cd above) so MATURIN stays valid
+# after rust_wheel() cds into the temp bundle copy.
+case "$PY" in /*) ;; */*) PY="$PWD/$PY" ;; esac
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "warning: uncommitted changes are not included; the bundle is built from HEAD" >&2
 fi
