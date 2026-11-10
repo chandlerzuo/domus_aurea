@@ -319,10 +319,12 @@ function cardEl(label, wild) {
   return el;
 }
 
-function cardsRow(labels, cls = "cards mini") {
+// level: the rank character being played (e.g. "2"); the heart of that rank is the wild card, so mark it ("配")
+// in played cards too -- otherwise 6 6 6 + the wild 2♥ looks like an invalid bomb.
+function cardsRow(labels, cls = "cards mini", level = null) {
   const row = document.createElement("div");
   row.className = cls;
-  for (const l of labels) row.append(cardEl(l));
+  for (const l of labels) row.append(cardEl(l, level !== null && l === level + "h"));
   return row;
 }
 
@@ -506,9 +508,9 @@ function renderSeat(p, el) {
   el.append(text("div", `${NAMES[p.seat]}家 · 剩 ${p.cards_left} 张` + (p.place ? ` · ${PLACES[p.place - 1]}` : ""), "meta"));
   if (p.last) {
     el.append(text("div", p.last.kind, "meta"));
-    if (p.last.cards.length) el.append(cardsRow(p.last.cards));
+    if (p.last.cards.length) el.append(cardsRow(p.last.cards, "cards mini", s.level));
   }
-  if (s.revealed && s.revealed[p.seat]) el.append(text("div", "剩余手牌：", "meta"), cardsRow(s.revealed[p.seat]));
+  if (s.revealed && s.revealed[p.seat]) el.append(text("div", "剩余手牌：", "meta"), cardsRow(s.revealed[p.seat], "cards mini", s.level));
 }
 
 function renderPlaying() {
@@ -524,7 +526,7 @@ function renderPlaying() {
                        text("span", `  剩 ${me.cards_left} 张` + (me.place ? ` · ${PLACES[me.place - 1]}` : ""), "meta"));
   if (me.last) {
     mine.append(text("div", "出牌：" + me.last.kind, "meta"));
-    if (me.last.cards.length) mine.append(cardsRow(me.last.cards));
+    if (me.last.cards.length) mine.append(cardsRow(me.last.cards, "cards mini", s.level));
   }
 
   const myTurn = s.as_player && s.phase === "human_turn" && s.waiting_on.includes(v);
@@ -660,7 +662,7 @@ function renderReplay() {
     el.append(row);
     if (trick[s]) {
       el.append(text("div", trick[s][2] === 0 ? "不出" : "出牌：", "meta"));
-      if (trick[s][1].length) el.append(cardsRow(trick[s][1].map(cardLabel)));
+      if (trick[s][1].length) el.append(cardsRow(trick[s][1].map(cardLabel), "cards mini", RANKS[rec.level]));
     }
   }
   const c = $("rcenter");
