@@ -16,7 +16,7 @@ Every theme uses the same rules, prices, tolls and card strengths. A theme only 
 | 西遊歷險 | `xiyou` | Journey to the West (*西遊記*) | 唐三藏、孫悟空、豬八戒、牛魔王 | 妖魔作亂 / 菩薩錦囊 |
 | 楚漢爭霸 | `chuhan` | Chu–Han Contention (*楚漢傳奇*) | 劉邦、項羽、韓信、秦二世 | 烽火急報 / 帷幄妙計 |
 
-Pick the theme on the offline setup screen, or as host in the online lobby. In every theme the four 2-cards are figures known for supernatural powers (in Sanguo: 黃承彥、木鹿大王、于吉、張角), the 7s are mostly strategists, and the Jacks are the strongest fighters. The two rest squares, the treasure square and the recruiting square each use a place from that story (for example 鴻門, 阿房宮, 驪山陵 and 築壇拜將 in Chu–Han), and the event cards that mention people or places are reworded for each theme.
+Pick the theme on the offline setup screen, or as table owner in the online lobby (sit down → owner picks the theme → everyone picks a hero from that theme). In every theme the four 2-cards are figures known for supernatural powers (in Sanguo: 黃承彥、木鹿大王、于吉、張角), the 7s are mostly strategists, and the Jacks are the strongest fighters. The two rest squares, the treasure square and the recruiting square each use a place from that story (for example 鴻門, 阿房宮, 驪山陵 and 築壇拜將 in Chu–Han), and the event cards that mention people or places are reworded for each theme.
 
 ### Adding a theme
 
@@ -60,7 +60,7 @@ node server/server.js          # or SANGUO_PORT=9000 node server/server.js
 Open <http://127.0.0.1:8765/> in several browser tabs or windows. Each tab is a separate player (the seat is remembered per tab, so reloading keeps your seat).
 
 **Four tables.** The first page lists 4 tables with who is sitting where. Pick one to sit down, or watch a game that is already running (a spectator never sees anyone's hand).
-- **Before the game:** sit at an open seat and pick a commander. The first player to sit is the table owner (房主). Only the owner picks the theme, by clicking one of five book covers at the top of the lobby; everyone else sees which one is chosen, and the table list shows it too. The owner can wait for friends, or turn empty seats into computer players (one by one, or with 空位全部設為電腦), set the speed, and start. Each table has its own theme.
+- **Before the game:** ① sit at an open seat; the first player to sit is the table owner (房主). ② Only the owner picks the theme, by clicking one of five book covers; everyone else sees which one is chosen, and the table list shows it too. ③ Once the theme is chosen, each seated player picks a commander (主帥) from that theme; changing the theme makes everyone pick again. The owner can wait for friends, or turn empty seats into computer players (one by one, or with 空位全部設為電腦), set the speed, and start. Each table has its own theme.
 - **During the game:** any player can stand up (離座). A computer takes over that seat and plays on. If the player stands up while a question is waiting, the game answers it with its default (usually the highlighted button).
 - **When everyone has stood up:** when the last human leaves, the game ends and the table opens again for new players. A player whose browser stays disconnected for 90 seconds is stood up automatically (`SANGUO_GRACE_MS` changes that), so a closed tab can't keep a table stuck.
 - **After a game:** any seated player can start a new one at the same table, with the same seats.
@@ -71,6 +71,8 @@ The game engine runs on the server, and each browser receives only that player's
 ### Why it only runs on 127.0.0.1
 
 This version has no login. The per-tab seat code only links a browser tab to a seat; it does not prove who someone is. The server therefore refuses to listen on anything other than `127.0.0.1` / `::1` / `localhost` (setting `SANGUO_HOST=0.0.0.0` makes it exit with an error).
+
+> **In the Xanadu repo** the board game is deployed together with Guandan by the top-level `deploy/setup.sh`: one HTTPS address and one login, with this game under `/boardgames/`. The section below describes deploying this game by itself.
 
 ### Host it next to guandan on a Tencent Cloud server
 

@@ -1,5 +1,7 @@
 # SPEC: Guandan game server on Tencent Cloud Lighthouse
 
+> **In the Xanadu repo** both games are deployed together with the top-level `deploy/setup.sh` (see the root README): one HTTPS address, one login, a portal at `/`, and this game under `/guandan/`. This document describes the standalone Guandan setup.
+
 Status: ready to deploy. The scripts have been tested end to end on macOS in
 testing mode; the systemd, nginx and certificate steps have not yet been run on
 a real Ubuntu server, so the first install is also their first run.

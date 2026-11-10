@@ -344,7 +344,7 @@ const updateStandBtn = () => { const b = $('#standBtn'); b.hidden = false; b.tex
 function connect(table) {
   ON.es?.close();
   ON.table = table ?? null; ON.lobby = null;
-  const es = ON.es = new EventSource('/api/events?token=' + encodeURIComponent(ON.token) + '&table=' + (table == null ? 'none' : table));
+  const es = ON.es = new EventSource('api/events?token=' + encodeURIComponent(ON.token) + '&table=' + (table == null ? 'none' : table));
   es.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type === 'tables') { ON.tables = m.tables; if (ON.table == null) renderTables(); }
@@ -357,19 +357,19 @@ function connect(table) {
     else if (m.type === 'log') addLog(m.html, m.meta);
     else if (m.type === 'dice') showDice(m.r);
     else if (m.type === 'flash') flashDeck(m.k);
-    else if (m.type === 'turn') turnButtons(m.opts, act => api('/api/answer', { id: m.id, btn: act }));
+    else if (m.type === 'turn') turnButtons(m.opts, act => api('api/answer', { id: m.id, btn: act }));
     else if (m.type === 'ask') {
       if (ON.shown.has(m.id)) return; // 重新連線時伺服器會補送未答的題目
       ON.shown.add(m.id);
       showModal(m.title, m.body, m.buttons, async (k, b) => {
-        const r = await api('/api/answer', { id: m.id, btn: k, inputs: formInputs(b) });
+        const r = await api('api/answer', { id: m.id, btn: k, inputs: formInputs(b) });
         if (r.errors) { for (const [id, t] of Object.entries(r.errors)) { const el = b.querySelector('#' + id); if (el) el.textContent = t; } return false; }
         return !!r.ok;
       }, m.id);
     } else if (m.type === 'over') {
       const mine = seated();
       showModal(m.title, m.html, [{ label: mine ? '回到大廳開新局' : '確定', cls: 'pri' }],
-        async () => { if (mine) await api('/api/lobby', { op: 'reset' }); return true; });
+        async () => { if (mine) await api('api/lobby', { op: 'reset' }); return true; });
     }
   };
   es.onerror = () => setNet('連線中斷，重新連線中……');
@@ -378,14 +378,14 @@ function connect(table) {
 
 // 離座：牌局中由電腦接手；回到桌位列表
 async function leaveSeat() {
-  await api('/api/leave', {});
+  await api('api/leave', {});
   ON.token = ''; ON.you = null; sessionStorage.removeItem('sanguo-token');
   clearGameUi(); connect(null);
 }
 function backToTables() { clearGameUi(); connect(null); }
 
 /* ---- 桌位列表 ---- */
-const cmdNameIn = (theme, j) => { const th = E.THEMES[theme]; return (th && th.cards && th.cards[COMMANDERS[j][0]]) || COMMANDERS[j][1]; };
+const cmdNameIn = (theme, j) => { if (j == null) return '尚未選主帥';  const th = E.THEMES[theme]; return (th && th.cards && th.cards[COMMANDERS[j][0]]) || COMMANDERS[j][1]; };
 function renderTables() {
   showScreen('tables');
   $('#tableCards').innerHTML = (ON.tables || []).map(t => {
@@ -410,50 +410,69 @@ function renderLobby() {
   $('#lobbyNo').textContent = ON.table + 1;
   useTheme(L.theme);
   renderThemePick(L, you);
-  const used = L.seats.filter(s => s.state !== 'open').map(s => s.cmd);
-  const free = COMMANDERS.map((c, j) => j).filter(j => !used.includes(j));
+  // 順序：① 入座（第一位是桌主）② 桌主選主題 ③ 大家選該主題的主帥
+  const taken = L.seats.filter(s => s.state !== 'open' && s.cmd != null).map(s => s.cmd);
+  const free = COMMANDERS.map((c, j) => j).filter(j => !taken.includes(j));
+  const mineCmd = (L.seats.find(s => s.mine) || {}).cmd;
   $('#seatRows').innerHTML = L.seats.map((s, k) => {
     const sw = `<span class="swatch" style="background:${PLAYER_COLORS[k]}"></span> 第 ${k + 1} 位`;
     if (s.state === 'open') {
       return `<div class="row">${sw}　<i>空位</i>
-        ${you.seat == null && free.length ? `<select id="pick${k}">${free.map(j => `<option value="${j}">${cmdName(j)}</option>`).join('')}</select><button data-join="${k}" class="pri">以此主帥入座</button>` : ''}
-        ${you.host && free.length ? `<button data-ai="${k}">設為電腦</button>` : ''}</div>`;
+        ${you.seat == null ? `<button data-join="${k}" class="pri">${L.seats.every(x => x.state === 'open') ? '入座並成為桌主' : '入座'}</button>` : ''}
+        ${you.host && L.themeChosen && free.length ? `<button data-ai="${k}">設為電腦</button>` : ''}</div>`;
     }
-    const who = s.state === 'ai' ? '電腦' : (s.mine ? '你' : '玩家') + (s.host ? '（房主）' : '') + (s.online ? '' : '（離線）');
-    return `<div class="row">${sw}　<b>${cmdName(s.cmd)}</b>　${who}
+    const who = s.state === 'ai' ? '電腦' : (s.mine ? '你' : '玩家') + (s.host ? '（桌主）' : '') + (s.online ? '' : '（離線）');
+    const hero = s.cmd == null ? '<i>尚未選主帥</i>' : `<b>${cmdName(s.cmd)}</b>`;
+    return `<div class="row">${sw}　${hero}　${who}
       ${you.host && s.state === 'ai' ? `<button data-remove="${k}">移除</button>` : ''}${s.mine ? '<button data-leave>離座</button>' : ''}</div>`;
   }).join('');
+  // 主帥選擇：主題確定後才出現，只有已入座的人可選
+  const heroBox = $('#heroPick');
+  heroBox.hidden = you.seat == null;
+  heroBox.querySelector('.heroes').innerHTML = !L.themeChosen ? '<i>等桌主選好主題後，才能選主帥。</i>'
+    : COMMANDERS.map((c, j) => {
+      const owner = L.seats.findIndex(s => s.state !== 'open' && s.cmd === j);
+      const mine = j === mineCmd, off = owner >= 0 && !mine;
+      return `<button data-hero="${j}" class="hero ${mine ? 'on' : ''}" ${off ? 'disabled' : ''}>${cmdName(j)}<small>${SUIT[c[0][0]]}A${off ? '・已被選走' : ''}</small></button>`;
+    }).join('');
   const nSeated = L.seats.filter(s => s.state !== 'open').length;
+  const unpicked = L.seats.some(s => s.state === 'human' && s.cmd == null);
   $('#lobbyHost').hidden = !you.host;
-  $('#lobbyFill').hidden = !free.length;
-  $('#lobbyWait').textContent = you.host ? (nSeated < 2 ? '至少需要 2 位：等朋友入座，或按「空位全部設為電腦」。' : '人到齊了就按「開始遊戲」；空位會留給電腦。')
-    : you.seat == null ? '選一個空位與主帥入座。第一位入座者為房主，由房主開始遊戲。' : '等待房主開始遊戲……';
-  $('#lobbyStart').disabled = nSeated < 2;
+  $('#lobbyFill').hidden = !free.length || !L.themeChosen;
+  $('#lobbyWait').textContent = you.seat == null ? '① 先選一個空位入座。第一位入座者就是桌主，由桌主先選主題。'
+    : you.host && !L.themeChosen ? '② 你是桌主：請先在上面點一本書選擇主題。'
+    : !L.themeChosen ? '② 等待桌主選擇主題……'
+    : mineCmd == null ? '③ 請選擇你的主帥。'
+    : you.host ? (unpicked ? '等其他玩家選好主帥。' : nSeated < 2 ? '至少需要 2 位：等朋友入座，或按「空位全部設為電腦」。' : '人到齊了就按「開始遊戲」；空位會留給電腦。')
+    : '等待桌主開始遊戲……';
+  $('#lobbyStart').disabled = nSeated < 2 || unpicked || !L.themeChosen;
   $('#onSpeed').value = String(L.speed);
   $('#lobbyBack').textContent = seated() ? '離座並返回桌位列表' : '返回桌位列表';
   $('#seatRows').querySelectorAll('[data-join]').forEach(b => b.onclick = async () => {
-    const k = +b.dataset.join, r = await api('/api/join', { seat: k, cmd: +$('#pick' + k).value });
+    const k = +b.dataset.join, r = await api('api/join', { seat: k });
     if (r.token) { ON.token = r.token; sessionStorage.setItem('sanguo-token', r.token); connect(r.table); } else alert(r.error || '無法入座');
   });
-  $('#seatRows').querySelectorAll('[data-ai]').forEach(b => b.onclick = () => api('/api/lobby', { op: 'ai', seat: +b.dataset.ai, cmd: free[0] }));
-  $('#seatRows').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => api('/api/lobby', { op: 'open', seat: +b.dataset.remove }));
+  heroBox.querySelectorAll('[data-hero]').forEach(b => b.onclick = async () => { const r = await api('api/lobby', { op: 'pick', cmd: +b.dataset.hero }); if (r.error) alert(r.error); });
+  $('#seatRows').querySelectorAll('[data-ai]').forEach(b => b.onclick = () => api('api/lobby', { op: 'ai', seat: +b.dataset.ai, cmd: free[0] }));
+  $('#seatRows').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => api('api/lobby', { op: 'open', seat: +b.dataset.remove }));
   $('#seatRows').querySelectorAll('[data-leave]').forEach(b => b.onclick = leaveSeat);
 }
 // 主題：一排古書封面。桌主點選；其他人只看得到選了哪一本
 const BOOK_COLOR = { sanguo: '#23395b', shuihu: '#2f4a2b', fengshen: '#5b2333', xiyou: '#7a5418', chuhan: '#2b2626' };
 function renderThemePick(L, you) {
   const th = Object.values(E.THEMES);
-  $('#themePick').innerHTML = th.map(t => `<button class="book ${t.key === L.theme ? 'on' : ''}" data-theme="${t.key}" style="--bk:${BOOK_COLOR[t.key] || '#3b4a5a'}" title="${t.label}" ${you.host ? '' : 'disabled'}><span class="slip"><i>${t.label}</i></span></button>`).join('');
-  $('#themeNote').textContent = you.host ? `你是桌主：點一本書選擇主題（目前：${E.THEMES[L.theme].label}）`
-    : you.seat != null ? `本桌主題：${E.THEMES[L.theme].label}（由桌主選擇）`
-    : `本桌主題：${E.THEMES[L.theme].label}。入座後，第一位入座的人就是桌主，可以選擇主題。`;
-  if (you.host) $('#themePick').querySelectorAll('[data-theme]').forEach(b => b.onclick = () => api('/api/lobby', { op: 'theme', theme: b.dataset.theme }));
+  const chosen = L.themeChosen ? L.theme : null;
+  $('#themePick').innerHTML = th.map(t => `<button class="book ${t.key === chosen ? 'on' : ''}" data-theme="${t.key}" style="--bk:${BOOK_COLOR[t.key] || '#3b4a5a'}" title="${t.label}" ${you.host ? '' : 'disabled'}><span class="slip"><i>${t.label}</i></span></button>`).join('');
+  $('#themeNote').textContent = you.host ? (chosen ? `你是桌主：點一本書選擇主題（目前：${E.THEMES[chosen].label}；換主題後大家要重選主帥）` : '你是桌主：請點一本書選擇主題。')
+    : chosen ? `本桌主題：${E.THEMES[chosen].label}（由桌主選擇）`
+    : you.seat != null ? '等待桌主選擇主題……' : '入座後，第一位入座的人就是桌主，由桌主先選主題。';
+  if (you.host) $('#themePick').querySelectorAll('[data-theme]').forEach(b => b.onclick = () => api('api/lobby', { op: 'theme', theme: b.dataset.theme }));
 }
 function startOnline() {
   FEED.skippable = false; // 連線版：節奏由伺服器控制
   $('#setup').hidden = true;
-  $('#lobbyStart').onclick = async () => { const r = await api('/api/lobby', { op: 'start', speed: +$('#onSpeed').value }); if (r.error) alert(r.error); };
-  $('#lobbyFill').onclick = () => api('/api/lobby', { op: 'fillai' });
+  $('#lobbyStart').onclick = async () => { const r = await api('api/lobby', { op: 'start', speed: +$('#onSpeed').value }); if (r.error) alert(r.error); };
+  $('#lobbyFill').onclick = () => api('api/lobby', { op: 'fillai' });
   $('#lobbyBack').onclick = () => { if (seated()) leaveSeat(); else backToTables(); };
   $('#standBtn').onclick = () => {
     if (!seated()) return backToTables();

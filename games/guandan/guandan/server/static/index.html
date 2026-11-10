@@ -47,6 +47,19 @@
   .hand.mine .card { cursor: pointer; transition: transform .08s; }
   .hand .card.sel { transform: translateY(-10px); box-shadow: 0 4px 0 #e8c547; }
   .mini .card { width: 24px; height: 36px; font-size: 11px; }
+  /* My hand: cards of one rank are stacked vertically, ranks side by side. Cards can be dragged to rearrange. */
+  .cards.hand { flex-wrap: nowrap; align-items: flex-start; gap: 0; overflow-x: auto; padding: 14px 4px 8px; min-height: 90px; }
+  .hand .hcol { display: flex; flex-direction: column; flex: none; padding: 0 3px; }
+  .hand .hcol .card + .card { margin-top: -48px; }
+  .hand .card { width: 46px; height: 68px; font-size: 16px; flex-direction: row; justify-content: center; align-items: flex-start; padding-top: 3px; box-sizing: border-box; flex: none; }
+  .hand .card br { display: none; }
+  .hand .card.joker { padding-top: 6px; }
+  .hand .card.sel { z-index: 1; }
+  .hand.mine .card[draggable="true"] { cursor: grab; }
+  .hand .card.dragging { opacity: .35; }
+  .hand .gap { flex: none; width: 6px; align-self: stretch; border-radius: 6px; transition: width .1s; }
+  .hand.dragging .gap { width: 26px; outline: 1px dashed rgba(255,255,255,.35); }
+  .hand.dragging .gap.over, .hand .hcol.over { background: rgba(232,197,71,.25); outline: 1px solid #e8c547; }
   .controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
   #log, #moves { background: rgba(0,0,0,.25); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, monospace;
          height: 560px; overflow-y: auto; white-space: pre-wrap; }
@@ -61,6 +74,7 @@
 </head>
 <body>
 <header>
+  <a href="../" title="返回游戏大厅" style="opacity:.7">‹ 大厅</a>
   <strong><a id="home">掼蛋</a></strong>
   <span id="where"></span>
   <span class="grow"></span>
@@ -95,6 +109,7 @@
             <button id="playBtn">出牌</button>
             <button id="passBtn" class="secondary">不出</button>
             <button id="clearBtn" class="secondary">重选</button>
+            <button id="sortBtn" class="secondary" title="按点数把牌重新叠放">整理手牌</button>
             <button id="nextBtn" class="hidden">下一局</button>
             <button id="leaveBtn" class="secondary">离开座位</button>
           </div>
@@ -170,6 +185,102 @@ const teamName = t => t === 0 ? "南北方" : "东西方";
 const SUIT_TEXT = { s: "♠", h: "♥", c: "♣", d: "♦" };
 const cardText = l => l === "sj" ? "小王" : l === "BJ" ? "大王" : SUIT_TEXT[l[1]] + rankName(l[0]);
 
+// ---- my hand: same-rank cards stacked in a column, columns side by side; drag cards to rearrange ----
+let handLayout = { deal: null, cols: [] };   // cols: arrays of card ids, left to right
+let dragIds = null;                          // ids being dragged (null when not dragging)
+const groupKey = c => (c.label === "sj" || c.label === "BJ") ? c.label : c.label[0];
+
+function reconcileHand(hand, deal) {
+  if (handLayout.deal !== deal) handLayout = { deal, cols: [] };
+  const byId = new Map(hand.map((c, i) => [c.id, { c, i }]));
+  handLayout.cols = handLayout.cols.map(col => col.filter(id => byId.has(id))).filter(col => col.length);
+  const placed = new Set(handLayout.cols.flat());
+  for (const { c, i } of hand.map(c => byId.get(c.id))) {
+    if (placed.has(c.id)) continue;
+    const col = handLayout.cols.find(col => groupKey(byId.get(col[0]).c) === groupKey(c));
+    if (col) col.push(c.id);
+    else {
+      const at = handLayout.cols.findIndex(col => byId.get(col[0]).i > i);
+      handLayout.cols.splice(at < 0 ? handLayout.cols.length : at, 0, [c.id]);
+    }
+  }
+}
+
+function moveCards(moving, targetCol, beforeId) {
+  // targetCol: existing column (array) to insert into, or null for a new column at index newAt
+  const mv = new Set(moving);
+  return (newAt) => {
+    const cols = handLayout.cols;
+    const anchor = targetCol ? null : cols[newAt] || null;   // column that a new column goes before
+    for (const col of cols) for (let i = col.length - 1; i >= 0; i--) if (mv.has(col[i])) col.splice(i, 1);
+    if (targetCol) {
+      const at = beforeId == null ? targetCol.length : targetCol.indexOf(beforeId);
+      targetCol.splice(at < 0 ? targetCol.length : at, 0, ...moving);
+    } else {
+      const at = anchor ? cols.indexOf(anchor) : cols.length;
+      cols.splice(at, 0, [...moving]);
+    }
+    handLayout.cols = cols.filter(col => col.length);
+  };
+}
+
+function renderHand(s) {
+  if (dragIds) return;   // a drag is in progress: don't rebuild the DOM under it
+  const hand = $("hand");
+  hand.replaceChildren();
+  hand.classList.remove("dragging");
+  hand.classList.toggle("mine", s.as_player);
+  reconcileHand(s.hand, s.deal_no);
+  const cardById = new Map(s.hand.map(c => [c.id, c]));
+  const mine = s.as_player;
+  const startDrag = (e, id) => {
+    const order = handLayout.cols.flat();
+    dragIds = selected.has(id) ? order.filter(x => selected.has(x)) : [id];   // dragging a selected card takes all selected cards
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(id));
+    setTimeout(() => { hand.classList.add("dragging"); hand.querySelectorAll(".card").forEach(el => { if (dragIds && dragIds.includes(+el.dataset.id)) el.classList.add("dragging"); }); }, 0);
+  };
+  const endDrag = () => { dragIds = null; render(); };
+  const allowDrop = (el, onDrop) => {
+    el.addEventListener("dragover", e => { if (!dragIds) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; el.classList.add("over"); });
+    el.addEventListener("dragleave", () => el.classList.remove("over"));
+    el.addEventListener("drop", e => { if (!dragIds) return; e.preventDefault(); e.stopPropagation(); onDrop(e); });
+  };
+  const gap = at => {
+    const g = document.createElement("div");
+    g.className = "gap";
+    if (mine) allowDrop(g, () => { const m = dragIds; moveCards(m, null)(at); endDrag(); });
+    return g;
+  };
+  handLayout.cols.forEach((col, ci) => {
+    hand.append(gap(ci));
+    const colEl = document.createElement("div");
+    colEl.className = "hcol";
+    for (const id of col) {
+      const card = cardById.get(id);
+      const el = cardEl(card.label, card.wild);
+      el.dataset.id = id;
+      if (selected.has(id)) el.classList.add("sel");
+      if (mine) {
+        el.onclick = () => { selected.has(id) ? selected.delete(id) : selected.add(id); render(); };
+        el.draggable = true;
+        el.addEventListener("dragstart", e => startDrag(e, id));
+        el.addEventListener("dragend", endDrag);
+      }
+      colEl.append(el);
+    }
+    if (mine) allowDrop(colEl, e => {
+      // insert before the first card whose middle is below the pointer; otherwise at the bottom
+      const m = dragIds, rest = col.filter(x => !m.includes(x));
+      const before = rest.find(x => { const r = colEl.querySelector(`[data-id="${x}"]`).getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+      moveCards(m, col, before)(0);
+      endDrag();
+    });
+    hand.append(colEl);
+  });
+  hand.append(gap(handLayout.cols.length));
+}
+
 function cardEl(label, wild) {
   const el = document.createElement("div");
   el.className = "card";
@@ -214,7 +325,7 @@ async function openLobby() {
   show("lobby");
   $("where").textContent = "大厅";
   const refresh = async () => {
-    try { lobbyData = await api("/api/lobby"); renderLobby(); } catch (e) { setError(e.message); }
+    try { lobbyData = await api("api/lobby"); renderLobby(); } catch (e) { setError(e.message); }
   };
   await refresh();
   poll = setInterval(refresh, 3000);
@@ -281,7 +392,7 @@ async function sit(tid, seat, name, suggestions) {
   setError("");
   localStorage.setItem("name", name);
   try {
-    const r = await api(`/api/table/${tid}/sit`, { seat, name, suggestions });
+    const r = await api(`api/table/${tid}/sit`, { seat, name, suggestions });
     sessionStorage.setItem("seat-" + tid, r.token);
     location.hash = `table-${tid}`;
   } catch (e) { setError(e.message); }
@@ -302,7 +413,7 @@ function openTable(tid, watchSeat) {
 async function refreshTable() {
   const { table, seat } = route;
   try {
-    const s = await api(`/api/table/${table}/state?seat=${seat}`, undefined, table);
+    const s = await api(`api/table/${table}/state?seat=${seat}`, undefined, table);
     if (token(table) && s.my_seat === null) {
       sessionStorage.removeItem("seat-" + table);
       setError("你的座位已被释放（离开、长时间无响应或超时）。");
@@ -415,17 +526,9 @@ function renderPlaying() {
   }[s.phase];
   c.append(text("div", msg, "banner"));
 
-  const hand = $("hand");
-  hand.replaceChildren();
-  hand.classList.toggle("mine", s.as_player);
   const ids = new Set(s.hand.map(x => x.id));
   selected = new Set([...selected].filter(id => ids.has(id)));
-  for (const card of s.hand) {
-    const el = cardEl(card.label, card.wild);
-    if (selected.has(card.id)) el.classList.add("sel");
-    if (s.as_player) el.onclick = () => { selected.has(card.id) ? selected.delete(card.id) : selected.add(card.id); render(); };
-    hand.append(el);
-  }
+  renderHand(s);
   if (s.as_player) {
     $("playBtn").textContent = myReturn ? "还贡" : "出牌";
     $("playBtn").disabled = !(myTurn || myReturn) || selected.size === 0;
@@ -454,7 +557,7 @@ function renderPlaying() {
 
 async function act(cmd, body) {
   setError("");
-  try { state = await api(`/api/table/${route.table}/${cmd}`, body, route.table); if (state.status === "open") return openLobby(); render(); }
+  try { state = await api(`api/table/${route.table}/${cmd}`, body, route.table); if (state.status === "open") return openLobby(); render(); }
   catch (e) {
     if (e.status === 409 && !token(route.table)) return openLobby();
     setError(e.message);
@@ -469,11 +572,12 @@ $("playBtn").onclick = () => {
   selected.clear();
 };
 $("passBtn").onclick = () => { selected.clear(); act("play", { cards: [] }); };
+$("sortBtn").onclick = () => { handLayout = { deal: null, cols: [] }; render(); };
 $("clearBtn").onclick = () => { selected.clear(); render(); };
 $("nextBtn").onclick = () => act("next", {});
 $("startBtn").onclick = () => act("start", {});
 $("leaveBtn").onclick = async () => {
-  try { await api(`/api/table/${route.table}/leave`, {}, route.table); } catch (e) { /* already released */ }
+  try { await api(`api/table/${route.table}/leave`, {}, route.table); } catch (e) { /* already released */ }
   sessionStorage.removeItem("seat-" + route.table);
   location.hash = "";
 };
@@ -493,7 +597,7 @@ async function openReplay(id) {
   route = { view: "replay", deal: id };
   show("replay");
   setError("");
-  try { rec = await api(`/api/deal/${id}`); } catch (e) { setError(e.message); return; }
+  try { rec = await api(`api/deal/${id}`); } catch (e) { setError(e.message); return; }
   review = null;
   rstep = 0;
   reviewSeat = rec.humans.length ? rec.humans[0] : 0;
@@ -576,7 +680,7 @@ async function loadReview(start) {
   const box = $("review");
   const deal = route.deal, seat = reviewSeat;
   try {
-    const r = start ? await api(`/api/deal/${deal}/review`, { seat }) : await api(`/api/deal/${deal}/review?seat=${seat}`);
+    const r = start ? await api(`api/deal/${deal}/review`, { seat }) : await api(`api/deal/${deal}/review?seat=${seat}`);
     if (route.deal !== deal || reviewSeat !== seat) return;
     box.replaceChildren();
     reviewPicker(box);
@@ -619,7 +723,7 @@ function boot() {
   else openLobby();
 }
 window.onhashchange = boot;
-api("/api/lobby").then(d => { lobbyData = d; }).finally(boot);
+api("api/lobby").then(d => { lobbyData = d; }).finally(boot);
 </script>
 </body>
 </html>

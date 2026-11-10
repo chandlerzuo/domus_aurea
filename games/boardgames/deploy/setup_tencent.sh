@@ -20,6 +20,8 @@
 # Options:
 #   --port P       public HTTPS port for the board games (default 8443)
 #   --app-port P   port the game listens on, on 127.0.0.1 only (default 8765)
+#   --service-only install and start only the loopback service: no nginx site, no login checks. The
+#                  repository-level deploy/setup.sh uses this, and serves both games behind one HTTPS login.
 #   --remove       take the board games off this machine again (service, nginx port, files)
 set -euo pipefail
 trap 'echo "setup failed (line $LINENO)" >&2' ERR
@@ -27,12 +29,14 @@ trap 'echo "setup failed (line $LINENO)" >&2' ERR
 PUBLIC_PORT=8443
 APP_PORT=8765
 REMOVE=0
+SERVICE_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --port) PUBLIC_PORT="$2"; shift 2 ;;
     --app-port) APP_PORT="$2"; shift 2 ;;
+    --service-only) SERVICE_ONLY=1; shift ;;
     --remove) REMOVE=1; shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -40,9 +44,9 @@ die() { echo "error: $*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "run with sudo"
 [[ "$PUBLIC_PORT" =~ ^[0-9]+$ && "$APP_PORT" =~ ^[0-9]+$ ]] || die "ports must be numbers"
 for p in 22 80 443; do
-  [ "$PUBLIC_PORT" != "$p" ] || die "--port $p is taken (22 = SSH, 80/443 = guandan); use another port such as 8443"
+  [ "$SERVICE_ONLY" = 1 ] || [ "$PUBLIC_PORT" != "$p" ] || die "--port $p is taken (22 = SSH, 80/443 = guandan); use another port such as 8443"
 done
-[ "$PUBLIC_PORT" != "$APP_PORT" ] || die "--port and --app-port must differ"
+[ "$SERVICE_ONLY" = 1 ] || [ "$PUBLIC_PORT" != "$APP_PORT" ] || die "--port and --app-port must differ"
 
 APP=/opt/board_games
 SVC=boardgames
@@ -68,6 +72,8 @@ fi
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 [ -f "$SRC/server/server.js" ] && [ -f "$SRC/index.html" ] || die "run this from the unpacked bundle ($SRC has no server/server.js)"
 
+listening() { [ -n "$(ss -ltnH "sport = :$1")" ]; }   # (no pipe into grep -q: it can trip pipefail)
+if [ "$SERVICE_ONLY" = 0 ]; then
 echo "==> checks (stops here unless guandan's HTTPS login is already in place)"
 command -v nginx >/dev/null || die "nginx is not installed; set up guandan with --public first"
 [ -s "$HTPASSWD" ] || die "$HTPASSWD is missing or empty. Run guandan's setup_lighthouse.sh --public first; this script reuses its login and never makes a password of its own"
@@ -75,9 +81,9 @@ command -v nginx >/dev/null || die "nginx is not installed; set up guandan with 
 CERT=$(sed -n 's/^[[:space:]]*ssl_certificate[[:space:]][[:space:]]*\([^;]*\);.*/\1/p' "$GSITE" | head -1)
 KEY=$(sed -n 's/^[[:space:]]*ssl_certificate_key[[:space:]][[:space:]]*\([^;]*\);.*/\1/p' "$GSITE" | head -1)
 [ -f "$CERT" ] && [ -f "$KEY" ] || die "could not find guandan's certificate files (read '$CERT' / '$KEY' from $GSITE)"
-listening() { [ -n "$(ss -ltnH "sport = :$1")" ]; }   # (no pipe into grep -q: it can trip pipefail)
 if listening "$PUBLIC_PORT" && [ ! -f "$SITE" ]; then
   die "TCP $PUBLIC_PORT is already used by another program; choose another with --port"
+fi
 fi
 if listening "$APP_PORT" && ! systemctl is-active -q "$SVC"; then
   die "TCP $APP_PORT is already used by another program; choose another with --app-port"
@@ -106,6 +112,7 @@ rm -rf "$APP.old"
 [ ! -d "$APP" ] || mv "$APP" "$APP.old"
 mv "$APP.new" "$APP"; rm -rf "$APP.old"
 
+if [ "$SERVICE_ONLY" = 0 ]; then
 echo "==> nginx (the login goes in place before the game is started)"
 V6=""
 [ -f /proc/net/if_inet6 ] && V6="listen [::]:$PUBLIC_PORT ssl;"
@@ -153,6 +160,8 @@ EOF
 ln -sf "$SITE" "$ENABLED"
 nginx -t -q
 systemctl reload nginx
+
+fi
 
 echo "==> service (127.0.0.1:$APP_PORT only)"
 cat > "$UNIT" <<EOF
@@ -216,6 +225,10 @@ fi
 while read -r addr; do
   [ "$addr" = "127.0.0.1:$APP_PORT" ] || fail_closed "unexpected listener $addr (expected 127.0.0.1:$APP_PORT)"
 done < <(ss -ltnH "sport = :$APP_PORT" | awk '{print $4}')
+if [ "$SERVICE_ONLY" = 1 ]; then
+  echo "board games service is listening on 127.0.0.1:$APP_PORT"
+  exit 0
+fi
 # Anonymous requests must be refused by the login, not by anything else.
 for path in / /engine.js /api/events /api/lobby; do
   HDRS=$(curl -sk --max-time 5 -o /dev/null -D - "https://127.0.0.1:$PUBLIC_PORT$path" || true)

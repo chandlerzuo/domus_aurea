@@ -37,6 +37,11 @@
   .book:disabled { cursor: default; opacity: .5; } .book.on:disabled { opacity: 1; }
   .book:not(:disabled):hover { transform: translateY(-3px); }
   #themeNote { font-size: 14px; color: #6b4f2a; }
+  .heroes { gap: 10px; flex-wrap: wrap; }
+  button.hero { display: flex; flex-direction: column; align-items: center; min-width: 96px; padding: 10px 14px; font-size: 18px; font-weight: 700; }
+  button.hero small { font-size: 12px; font-weight: 400; color: #6b4f2a; }
+  button.hero.on { background: #c0392b; color: #fff; border-color: #7d2219; } button.hero.on small { color: #ffd9d4; }
+  a.portal { color: #6b4f2a; font-size: 14px; }
   @media (max-width: 640px) { #tableCards { grid-template-columns: 1fr; } }
   #lobby .row, #lobby fieldset { margin: 8px 0; }
   #lobby fieldset { border: 1px solid #c9a96e; border-radius: 8px; }
@@ -164,14 +169,15 @@
   <h1>英雄擲天下　連線大廳</h1>
   <div>共 4 桌。選一桌入座，可以等朋友加入，也可以用電腦補滿空位直接開局；牌局中隨時可以離座，由電腦接手；真人全部離座後牌局結束，桌子重新開放。</div>
   <div id="tableCards"></div>
-  <div class="row"><button id="rulesBtn2">遊戲說明</button><span class="netStatus err"></span></div>
+  <div class="row"><button id="rulesBtn2">遊戲說明</button><a class="portal" href="../">← 返回遊戲大廳</a><span class="netStatus err"></span></div>
 </div>
 
 <div id="lobby" hidden>
   <h1><span class="themeTitle">三國風雲</span>　第 <span id="lobbyNo">1</span> 桌</h1>
-  <div>選一個空位和主帥入座。第一位入座的人是房主：可以等朋友加入，也可以把空位設為電腦後開始遊戲。</div>
-  <fieldset><legend>主題</legend><div id="themePick"></div><div id="themeNote"></div></fieldset>
-  <fieldset><legend>座位</legend><div id="seatRows"></div><div id="lobbyWait" class="err" style="color:#6b4f2a"></div></fieldset>
+  <div>① 入座（第一位入座的人是桌主）→ ② 桌主選主題 → ③ 大家選該主題的主帥 → 桌主開始遊戲，空位可設為電腦。</div>
+  <fieldset><legend>① 座位</legend><div id="seatRows"></div><div id="lobbyWait" class="err" style="color:#6b4f2a"></div></fieldset>
+  <fieldset><legend>② 主題（桌主選擇）</legend><div id="themePick"></div><div id="themeNote"></div></fieldset>
+  <fieldset id="heroPick" hidden><legend>③ 選擇你的主帥</legend><div class="heroes row"></div></fieldset>
   <fieldset id="lobbyHost" hidden><legend>房主設定</legend>
     <div class="row">電腦速度 <select id="onSpeed"><option value="900">慢（每步 5 秒）</option><option value="450" selected>中（每步 3 秒）</option><option value="120">快（每步 2 秒）</option></select></div>
     <div class="row" style="justify-content:flex-end"><button id="lobbyFill">空位全部設為電腦</button><button id="lobbyStart" class="pri" style="font-size:20px;padding:10px 28px">開始遊戲</button></div>

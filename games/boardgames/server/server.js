@@ -51,7 +51,7 @@ for (const th of Object.values(E.THEMES)) {
 /* ---- 桌子與連線 ---- */
 const NTABLES = 4, NSEATS = 4;
 const GRACE_MS = +process.env.SANGUO_GRACE_MS || 90000;   // 斷線超過這段時間，座位改由電腦接手（或釋出）
-const newTable = id => ({ id, seats: Array.from({ length: NSEATS }, () => ({ state: 'open' })), host: null, speed: 450, theme: 'sanguo', started: false, game: null });
+const newTable = id => ({ id, seats: Array.from({ length: NSEATS }, () => ({ state: 'open' })), host: null, speed: 450, theme: 'sanguo', themeChosen: false, started: false, game: null });
 const tables = Array.from({ length: NTABLES }, (_, id) => newTable(id));
 const clients = new Set();   // { res, token, table: 桌號或 null }
 // table.game：{ seatOf: 座位→引擎玩家 id, pending: Map, logs, over, views, worker, waiters }
@@ -73,7 +73,7 @@ function lobbyFor(t, token) {
   const me = find(token), mine = me && me.t === t ? me.k : -1;
   return {
     type: 'lobby', table: t.id,
-    lobby: { started: t.started, speed: t.speed, theme: t.theme,
+    lobby: { started: t.started, speed: t.speed, theme: t.theme, themeChosen: t.themeChosen,
       seats: t.seats.map((s, k) => ({ state: s.state, cmd: s.cmd, mine: k === mine, host: !!s.token && s.token === t.host, online: s.state !== 'human' || online(s.token) })) },
     you: { seat: mine >= 0 ? mine : null, host: mine >= 0 && token === t.host },
   };
@@ -188,6 +188,7 @@ function readJson(req) {
   });
 }
 function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); }
+const COMMANDER_IDS = [0, 1, 2, 3];
 const freeCmd = t => [0, 1, 2, 3].filter(c => !t.seats.some(s => s.state !== 'open' && s.cmd === c));
 
 async function handleApi(req, res, url) {
@@ -233,14 +234,14 @@ async function handleApi(req, res, url) {
   const me = find(token);
 
   if (url.pathname === '/api/join') {
-    const t = Number.isInteger(body.table) ? tables[body.table] : null, k = body.seat, cmd = body.cmd;
+    const t = Number.isInteger(body.table) ? tables[body.table] : null, k = body.seat;
     if (!t) return json(res, 400, { error: '桌號錯誤' });
     if (t.started) return json(res, 409, { error: '遊戲已經開始' });
     if (me) return json(res, 409, { error: '你已經有座位了' });
     if (!Number.isInteger(k) || !t.seats[k] || t.seats[k].state !== 'open') return json(res, 409, { error: '這個座位已有人' });
-    if (!freeCmd(t).includes(cmd)) return json(res, 409, { error: '這位主帥已被選走' });
+    // 入座時還沒有主帥：先入座（第一位成為房主）→ 房主選主題 → 大家再選該主題的主帥
     const tk = crypto.randomBytes(16).toString('hex');
-    t.seats[k] = { state: 'human', cmd, token: tk };
+    t.seats[k] = { state: 'human', cmd: null, token: tk };
     if (!t.host || !t.seats.some(s => s.token === t.host)) t.host = tk;
     broadcastLobby(t);
     return json(res, 200, { token: tk, table: t.id });
@@ -266,27 +267,37 @@ async function handleApi(req, res, url) {
     }
     if (t.started) return json(res, 409, { error: '遊戲已經開始' });
     const k = body.seat;
+    const needTheme = () => (t.themeChosen ? null : json(res, 409, { error: '請先由房主選擇主題' }));
     if (op === 'open') {   // 房主移除電腦座位
       const s = t.seats[k];
       if (!isHost || !s || s.state !== 'ai') return json(res, 403, { error: '無權變更此座位' });
       t.seats[k] = { state: 'open' };
+    } else if (op === 'pick') {   // 選擇（或改選）自己的主帥：主題定了才能選
+      if (needTheme()) return;
+      if (!Number.isInteger(body.cmd) || !COMMANDER_IDS.includes(body.cmd)) return json(res, 400, { error: '未知的主帥' });
+      if (!freeCmd(t).includes(body.cmd) && t.seats[me.k].cmd !== body.cmd) return json(res, 409, { error: '這位主帥已被選走' });
+      t.seats[me.k].cmd = body.cmd;
     } else if (op === 'ai') {
       if (!isHost) return json(res, 403, { error: '只有房主可設定電腦' });
+      if (needTheme()) return;
       if (!t.seats[k] || t.seats[k].state !== 'open') return json(res, 409, { error: '座位不是空的' });
       if (!freeCmd(t).includes(body.cmd)) return json(res, 409, { error: '沒有可用的主帥' });
       t.seats[k] = { state: 'ai', cmd: body.cmd };
     } else if (op === 'fillai') {   // 空位全部由電腦補上
       if (!isHost) return json(res, 403, { error: '只有房主可設定電腦' });
+      if (needTheme()) return;
       t.seats.forEach((s, j) => { if (s.state === 'open') { const c = freeCmd(t)[0]; if (c != null) t.seats[j] = { state: 'ai', cmd: c }; } });
     } else if (op === 'theme') {
       if (!isHost) return json(res, 403, { error: '只有房主可選擇主題' });
       if (!Object.hasOwn(E.THEMES, body.theme)) return json(res, 400, { error: '未知的主題' });
-      t.theme = body.theme;
+      t.theme = body.theme; t.themeChosen = true;
+      t.seats.forEach(s => { if (s.state === 'human') s.cmd = null; });   // 換了主題，大家重新選該主題的主帥
     } else if (op === 'start') {
       if (!isHost) return json(res, 403, { error: '只有房主可開始遊戲' });
+      if (needTheme()) return;
+      if (t.seats.some(s => s.state === 'human' && s.cmd == null)) return json(res, 409, { error: '還有玩家沒有選主帥' });
       if (t.seats.filter(s => s.state !== 'open').length < 2) return json(res, 409, { error: '至少需要 2 位（可把空位設為電腦）' });
       t.speed = [120, 450, 900].includes(+body.speed) ? +body.speed : 450;
-      if (Object.hasOwn(E.THEMES, body.theme)) t.theme = body.theme;
       startGame(t);
       return json(res, 200, { ok: true });
     } else return json(res, 400, { error: '未知的操作' });

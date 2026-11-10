@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xanadu · 游戏大厅</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 36px;
+         background: radial-gradient(ellipse at 50% 0%, #2c5a43 0%, #173325 55%, #0d1f16 100%); color: #f4ecd6;
+         font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "Noto Serif SC", serif; }
+  header { text-align: center; }
+  header h1 { margin: 0; font-size: 20px; font-weight: 400; letter-spacing: .5em; text-indent: .5em; opacity: .75; }
+  header p { margin: 6px 0 0; font-size: 13px; letter-spacing: .2em; opacity: .5; }
+  .games { display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; padding: 0 20px; }
+  a.game { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; width: 300px; height: 380px;
+           border-radius: 18px; text-decoration: none; color: inherit; border: 2px solid rgba(244,236,214,.35);
+           box-shadow: 0 10px 30px #0008; transition: transform .15s, box-shadow .15s, border-color .15s; }
+  a.game:hover, a.game:focus-visible { transform: translateY(-8px); box-shadow: 0 18px 40px #000a; border-color: #e8c547; outline: none; }
+  a.guandan { background: linear-gradient(160deg, #8e1f1f, #4d0f12); }
+  a.boardgames { background: linear-gradient(160deg, #20405f, #0f2237); }
+  .big { font-size: 128px; line-height: 1; font-weight: 700; letter-spacing: .04em; text-shadow: 0 4px 0 #0005; }
+  .name { font-size: 22px; letter-spacing: .2em; text-indent: .2em; }
+  .desc { font-size: 14px; opacity: .7; text-align: center; padding: 0 24px; line-height: 1.6; }
+  footer { font-size: 12px; opacity: .4; }
+  @media (max-width: 700px) { a.game { width: 260px; height: 300px; } .big { font-size: 96px; } .games { gap: 22px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>游 戏 大 厅</h1>
+  <p>选择一个游戏</p>
+</header>
+<main class="games">
+  <a class="game guandan" href="guandan/">
+    <span class="big">掼蛋</span>
+    <span class="name">掼蛋</span>
+    <span class="desc">四人两队，打牌升级。<br>与朋友或 AI 同桌对战。</span>
+  </a>
+  <a class="game boardgames" href="boardgames/">
+    <span class="big">天下</span>
+    <span class="name">英雄掷天下</span>
+    <span class="desc">三国、水浒、封神、西游、楚汉。<br>掷骰行军，攻城略地。</span>
+  </a>
+</main>
+<footer>Xanadu</footer>
+</body>
+</html>
