@@ -1,6 +1,6 @@
-# Xanadu
+# Domus Aurea
 
-> In Xanadu did Kubla Khan a stately pleasure-dome decree.
+> Named for Nero's *Domus Aurea*, the Golden House: a palace built for pleasure and rest.
 
 One home for two games, served together behind one login:
 
@@ -36,9 +36,9 @@ python3.12 -m venv .venv && .venv/bin/pip install -e 'games/guandan[dev]'
 ## Deploy to a Tencent Cloud Lighthouse server
 
 ```bash
-deploy/make_bundle.sh                # on your computer, from a committed checkout -> dist/xanadu-<rev>.tar.gz
-scp dist/xanadu-<rev>.tar.gz ubuntu@<server-ip>:~
-ssh ubuntu@<server-ip> 'tar xzf xanadu-<rev>.tar.gz && sudo bash xanadu-<rev>/deploy/setup.sh'
+deploy/make_bundle.sh                # on your computer, from a committed checkout -> dist/domus_aurea-<rev>.tar.gz
+scp dist/domus_aurea-<rev>.tar.gz ubuntu@<server-ip>:~
+ssh ubuntu@<server-ip> 'tar xzf domus_aurea-<rev>.tar.gz && sudo bash domus_aurea-<rev>/deploy/setup.sh'
 ```
 
 `deploy/setup.sh` installs both games as hardened systemd services that listen on loopback only
@@ -52,4 +52,4 @@ over and retires the old nginx sites (you can then close TCP 8443).
 See [`games/guandan/docs/DEPLOY.md`](games/guandan/docs/DEPLOY.md) for capacity numbers and
 [`games/guandan/docs/SERVER_SPEC.md`](games/guandan/docs/SERVER_SPEC.md) for the Guandan server in detail
 (written for the standalone setup; the combined setup differs only in the nginx site and the login file names:
-`/etc/nginx/xanadu.htpasswd`, `/root/xanadu-login.txt`).
+`/etc/nginx/domus_aurea.htpasswd`, `/root/domus_aurea-login.txt`).

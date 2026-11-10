@@ -1,6 +1,6 @@
 # Running the game server on a cloud machine
 
-> **In the Xanadu repo** both games are deployed together with the top-level `deploy/setup.sh` (see the root README): one HTTPS address, one login, a portal at `/`, and this game under `/guandan/`. This document describes the standalone Guandan setup.
+> **In the Domus Aurea repo** both games are deployed together with the top-level `deploy/setup.sh` (see the root README): one HTTPS address, one login, a portal at `/`, and this game under `/guandan/`. This document describes the standalone Guandan setup.
 
 For the exact step-by-step setup with public browser access (Hong Kong Lighthouse,
 shared password), see [SERVER_SPEC.md](SERVER_SPEC.md). This page explains the

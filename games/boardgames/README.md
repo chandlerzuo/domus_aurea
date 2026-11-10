@@ -72,7 +72,7 @@ The game engine runs on the server, and each browser receives only that player's
 
 This version has no login. The per-tab seat code only links a browser tab to a seat; it does not prove who someone is. The server therefore refuses to listen on anything other than `127.0.0.1` / `::1` / `localhost` (setting `SANGUO_HOST=0.0.0.0` makes it exit with an error).
 
-> **In the Xanadu repo** the board game is deployed together with Guandan by the top-level `deploy/setup.sh`: one HTTPS address and one login, with this game under `/boardgames/`. The section below describes deploying this game by itself.
+> **In the Domus Aurea repo** the board game is deployed together with Guandan by the top-level `deploy/setup.sh`: one HTTPS address and one login, with this game under `/boardgames/`. The section below describes deploying this game by itself.
 
 ### Host it next to guandan on a Tencent Cloud server
 

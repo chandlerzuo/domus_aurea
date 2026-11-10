@@ -2,12 +2,12 @@
 # Install both games on a Tencent Cloud Lighthouse machine (Ubuntu 24.04) behind one HTTPS address
 # with one shared login. After signing in, players see the portal and pick Guandan or the board game.
 #
-#   tar xzf xanadu-<rev>.tar.gz && sudo bash xanadu-<rev>/deploy/setup.sh
+#   tar xzf domus_aurea-<rev>.tar.gz && sudo bash domus_aurea-<rev>/deploy/setup.sh
 #
 # What it does, in order:
 #   1. games/guandan/deploy/setup_lighthouse.sh    -> Guandan on 127.0.0.1:8770 (service "guandan")
 #   2. games/boardgames/deploy/setup_tencent.sh    -> board game on 127.0.0.1:8765 (service "boardgames")
-#   3. copies portal/ to /opt/xanadu/portal
+#   3. copies portal/ to /opt/domus_aurea/portal
 #   4. deploy/public_access.sh                     -> nginx on 443: HTTPS, shared login, one site:
 #                                                       /            portal
 #                                                       /guandan/    Guandan
@@ -48,7 +48,7 @@ die() { echo "error: $*" >&2; exit 1; }
 [ "$PUBLIC" = 1 ] || [ ${#PUB_ARGS[@]} -eq 0 ] || die "--password/--login-user/--public-ip/--domain/--email need public access (drop --no-public)"
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 [ -f "$SRC/games/guandan/guandan/server/server.py" ] && [ -f "$SRC/games/boardgames/server/server.js" ] \
-  || die "run this from the unpacked bundle ($SRC does not look like the xanadu tree)"
+  || die "run this from the unpacked bundle ($SRC does not look like the domus_aurea tree)"
 
 echo "################ 1/4 Guandan"
 bash "$SRC/games/guandan/deploy/setup_lighthouse.sh" --tables "$TABLES" --port "$GPORT"
@@ -57,7 +57,7 @@ echo; echo "################ 2/4 board game"
 bash "$SRC/games/boardgames/deploy/setup_tencent.sh" --service-only --app-port "$BPORT"
 
 echo; echo "################ 3/4 portal"
-PORTAL=/opt/xanadu/portal
+PORTAL=/opt/domus_aurea/portal
 rm -rf "$PORTAL.new"; mkdir -p "$PORTAL.new"
 cp -r "$SRC/portal/." "$PORTAL.new/"
 chown -R root:root "$PORTAL.new"; chmod -R go-w "$PORTAL.new"; chmod -R a+rX "$PORTAL.new"

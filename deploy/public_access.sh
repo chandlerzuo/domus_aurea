@@ -17,8 +17,8 @@
 # Options:
 #   --guandan-port P     Guandan on 127.0.0.1 (default 8770)
 #   --boardgames-port P  board game on 127.0.0.1 (default 8765)
-#   --portal DIR         where the portal's index.html is (default /opt/xanadu/portal)
-#   --user NAME          login name (default: keep the existing one, else "xanadu")
+#   --portal DIR         where the portal's index.html is (default /opt/domus_aurea/portal)
+#   --user NAME          login name (default: keep the existing one, else "domus_aurea")
 #   --password PW        shared password (default: keep the existing one, or generate a random one)
 #   --public-ip IP       the server's public IP (default: ask the Tencent Cloud metadata service)
 #   --domain D           use a Let's Encrypt certificate for D (D must already point at this server)
@@ -31,7 +31,7 @@ trap 'echo "public access setup failed (line $LINENO)" >&2' ERR
 
 GPORT=8770
 BPORT=8765
-PORTAL=/opt/xanadu/portal
+PORTAL=/opt/domus_aurea/portal
 LOGIN=""
 PASSWORD=""
 PUBLIC_IP=""
@@ -57,11 +57,11 @@ die() { echo "error: $*" >&2; exit 1; }
 [ -z "$DOMAIN" ] || [ -n "$EMAIL" ] || die "--domain needs --email (Let's Encrypt contact)"
 [ -f "$PORTAL/index.html" ] || die "no portal at $PORTAL/index.html (run deploy/setup.sh)"
 
-HTPASSWD=/etc/nginx/xanadu.htpasswd
-LOGIN_FILE=/root/xanadu-login.txt
-CERT=/etc/nginx/xanadu-selfsigned.crt
-KEY=/etc/nginx/xanadu-selfsigned.key
-SITE=/etc/nginx/sites-available/xanadu
+HTPASSWD=/etc/nginx/domus_aurea.htpasswd
+LOGIN_FILE=/root/domus_aurea-login.txt
+CERT=/etc/nginx/domus_aurea-selfsigned.crt
+KEY=/etc/nginx/domus_aurea-selfsigned.key
+SITE=/etc/nginx/sites-available/domus_aurea
 # Earlier layouts (guandan alone, board game on its own port): carry the login and certificate over, then retire them.
 OLD_LOGIN_FILE=/root/guandan-login.txt
 OLD_CERT=/etc/nginx/guandan-selfsigned.crt
@@ -77,7 +77,7 @@ SRC_LOGIN_FILE=""
 [ -f "$LOGIN_FILE" ] && SRC_LOGIN_FILE=$LOGIN_FILE || { [ -f "$OLD_LOGIN_FILE" ] && SRC_LOGIN_FILE=$OLD_LOGIN_FILE; } || true
 if [ -z "$LOGIN" ]; then
   LOGIN=$([ -n "$SRC_LOGIN_FILE" ] && sed -n 's/^user: //p' "$SRC_LOGIN_FILE" || true)
-  LOGIN=${LOGIN:-xanadu}
+  LOGIN=${LOGIN:-domus_aurea}
 fi
 if [ -n "$PASSWORD" ]; then
   [ ${#PASSWORD} -ge 10 ] || die "--password: use at least 10 characters"
@@ -125,8 +125,8 @@ fi
 HSTS=""
 [ -n "$DOMAIN" ] && HSTS='add_header Strict-Transport-Security "max-age=31536000" always;'
 cat > "$SITE" <<EOF
-# Xanadu: one public HTTPS entry point for both games. The game servers only listen on 127.0.0.1.
-limit_req_zone \$binary_remote_addr zone=xanadu:10m rate=10r/s;
+# Domus Aurea: one public HTTPS entry point for both games. The game servers only listen on 127.0.0.1.
+limit_req_zone \$binary_remote_addr zone=domus_aurea:10m rate=10r/s;
 
 server {
     listen 80 default_server;
@@ -148,11 +148,11 @@ server {
     $HSTS
 
     client_max_body_size 64k;
-    limit_req zone=xanadu burst=40 nodelay;
+    limit_req zone=domus_aurea burst=40 nodelay;
     limit_req_status 429;
 
     # One login protects everything below, the portal included.
-    auth_basic "Xanadu";
+    auth_basic "Domus Aurea";
     auth_basic_user_file $HTPASSWD;
 
     # Portal: the page with the two entry buttons.
@@ -197,7 +197,7 @@ EOF
 rm -f /etc/nginx/sites-enabled/default
 # retire the earlier sites (they would fight over port 443 or leave an extra open port)
 for old in guandan boardgames; do rm -f "/etc/nginx/sites-enabled/$old" "/etc/nginx/sites-available/$old"; done
-ln -sf "$SITE" /etc/nginx/sites-enabled/xanadu
+ln -sf "$SITE" /etc/nginx/sites-enabled/domus_aurea
 nginx -t -q
 systemctl enable -q nginx
 systemctl restart nginx
@@ -221,7 +221,7 @@ echo "anonymous requests: 401 (blocked); with the shared login: portal, Guandan 
 URL="https://$NAME"
 cat <<EOF
 
-Xanadu is up: $URL
+Domus Aurea is up: $URL
   login:    $LOGIN
   password: $PASSWORD     (saved in $LOGIN_FILE, readable by root only)
 After signing in, players see the portal and pick 掼蛋 or 天下 (the board game).

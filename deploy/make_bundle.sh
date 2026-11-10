@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Build one offline install bundle for both games: dist/xanadu-<rev>.tar.gz
+# Build one offline install bundle for both games: dist/domus_aurea-<rev>.tar.gz
 #
 # It holds the committed code (git HEAD) of the whole repository, the trained Guandan models,
 # and Python wheels (numpy, CPU-only PyTorch, the Rust core) for the server's platform, so the
 # server only needs its own apt mirror.
 #
 #   deploy/make_bundle.sh                       # Linux x86-64, Python 3.12 (Ubuntu 24.04)
-#   scp dist/xanadu-<rev>.tar.gz ubuntu@<server-ip>:~
-#   ssh ubuntu@<server-ip> 'tar xzf xanadu-<rev>.tar.gz && sudo bash xanadu-<rev>/deploy/setup.sh'
+#   scp dist/domus_aurea-<rev>.tar.gz ubuntu@<server-ip>:~
+#   ssh ubuntu@<server-ip> 'tar xzf domus_aurea-<rev>.tar.gz && sudo bash domus_aurea-<rev>/deploy/setup.sh'
 #
 # Options (passed through to games/guandan/deploy/build_wheels.sh):
 #   --python X.Y        Python version on the server
@@ -35,7 +35,7 @@ PY="${PYTHON:-.venv/bin/python}"
 [ -x "$PY" ] || PY=python3
 case "$PY" in /*) ;; */*) PY="$PWD/$PY" ;; esac
 REV=$(git rev-parse --short HEAD)
-NAME="xanadu-$REV"
+NAME="domus_aurea-$REV"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 

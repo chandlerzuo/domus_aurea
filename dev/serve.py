@@ -129,7 +129,7 @@ def main():
     routes = {"/guandan": a.guandan_port, "/boardgames": a.boardgames_port}
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(routes, ROOT / "portal"))
     srv.daemon_threads = True
-    print(f"Xanadu: http://127.0.0.1:{a.port}/")
+    print(f"Domus Aurea: http://127.0.0.1:{a.port}/")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
