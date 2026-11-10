@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+# Local user accounts
+data/
+# Training output: track only the final model and its config.
+runs/*
+!runs/dmc/
+runs/dmc/*
+!runs/dmc/model.pt
+!runs/dmc/config.json
+*.log
+!runs/ppo/
+runs/ppo/*
+!runs/ppo/model.pt
+!runs/ppo/v1.pt
+!runs/ppo/config_v1.json
+!runs/ppo/bc.pt
+!runs/ppo/config.json
+dist/
+rust/target/
