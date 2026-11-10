@@ -67,6 +67,30 @@ fi
 echo "$PYVER $PLATFORM" > "$WHEELS/TARGET"
 ls "$WHEELS" | grep -q '^torch-' || { echo "no torch wheel was downloaded" >&2; exit 1; }
 
+# The Rust core (rules engine, fast self-play, and the search behind the "PPO+搜索" AI) is built from
+# rust/ for the server's platform. Cross-compiling needs maturin and ziglang in the same Python
+# environment (pip install maturin ziglang) and a Rust toolchain with the target installed. If any is
+# missing the bundle still works: the server then runs the (slower) Python engine, without ppo+.
+echo "==> Rust core wheel for $PLATFORM"
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+MATURIN="$(dirname "$PY")/maturin"; [ -x "$MATURIN" ] || MATURIN=$(command -v maturin || true)
+rust_wheel() {
+  [ -n "$MATURIN" ] && command -v cargo >/dev/null 2>&1 || return 1
+  case "$PLATFORM" in
+    linux-x86_64) TRIPLE=x86_64-unknown-linux-gnu ;;
+    linux-aarch64) TRIPLE=aarch64-unknown-linux-gnu ;;
+    native) (cd "$WORK/$NAME/rust" && "$MATURIN" build --release -q -i "$PY" -o "$WHEELS"); return ;;
+  esac
+  rustup target add "$TRIPLE" >/dev/null 2>&1 || return 1
+  (cd "$WORK/$NAME/rust" && PATH="$(dirname "$PY"):$PATH" "$MATURIN" build --release -q --target "$TRIPLE" --zig \
+      --manylinux 2_28 -i "python$PYVER" -o "$WHEELS")
+}
+if rust_wheel >/dev/null 2>&1 && ls "$WHEELS" | grep -q '^guandan_core-'; then
+  ls "$WHEELS" | grep '^guandan_core-'
+else
+  echo "warning: could not build the Rust core; the bundle will run the Python engine (no ppo+ search)" >&2
+fi
+
 mkdir -p "$OUT"
 tar -czf "$OUT/$NAME.tar.gz" -C "$WORK" "$NAME"
 SIZE=$(du -h "$OUT/$NAME.tar.gz" | cut -f1)

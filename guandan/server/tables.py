@@ -19,6 +19,7 @@ human-watchable pace, so players and watchers all see the same game.
 """
 from __future__ import annotations
 
+import os
 import secrets
 import threading
 import time
@@ -38,6 +39,9 @@ from .store import Store
 
 RUNS = Path(__file__).resolve().parents[2] / "runs"
 MODELS = {"dmc": RUNS / "dmc" / "model.pt", "ppo": RUNS / "ppo" / "model.pt"}
+SEARCH_WORLDS = int(os.environ.get("GUANDAN_SEARCH_WORLDS", "32"))
+SEARCH_TOPK = int(os.environ.get("GUANDAN_SEARCH_TOPK", "4"))
+SEARCH_MARGIN = float(os.environ.get("GUANDAN_SEARCH_MARGIN", "0.0"))
 IDLE_SECONDS = 90
 TURN_SECONDS = 5 * 60
 NEXT_DEAL_SECONDS = 45   # a finished deal moves on by itself after this long
@@ -45,13 +49,22 @@ _NETS: dict = {}
 _NETS_LOCK = threading.Lock()
 
 
+def search_available() -> bool:
+    """`ppo+` (the PPO policy with look-ahead search) needs the Rust core; GUANDAN_SEARCH=0 turns it off."""
+    from ..rl import fast
+    return fast.AVAILABLE and os.environ.get("GUANDAN_SEARCH", "1") != "0"
+
+
 def agent_kinds() -> list[str]:
-    return sorted(BASE_AGENTS) + [k for k, p in MODELS.items() if p.exists()]
+    kinds = sorted(BASE_AGENTS) + [k for k, p in MODELS.items() if p.exists()]
+    if "ppo" in kinds and search_available():
+        kinds.append("ppo+")
+    return kinds
 
 
 def default_ai() -> str:
     kinds = agent_kinds()
-    return "ppo" if "ppo" in kinds else "dmc" if "dmc" in kinds else "heuristic"
+    return next((k for k in ("ppo+", "ppo", "dmc") if k in kinds), "heuristic")
 
 
 def _net(kind: str):
@@ -73,6 +86,9 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
     if kind == "ppo":
         from ..rl.policy import PolicyAgent
         return PolicyAgent(_net("ppo"), seed=seed)
+    if kind == "ppo+":
+        from ..rl.search import SearchAgent
+        return SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN)
     if kind not in BASE_AGENTS:
         raise ValueError(f"unknown agent {kind!r}")
     return BASE_AGENTS[kind](seed=seed)
@@ -88,7 +104,9 @@ def suggest(obs: dict, k: int = 3) -> list[dict]:
     if MODELS["ppo"].exists():
         from ..rl.features import encode_actions, encode_state
         from ..rl.policy import policy_step
-        _, _, p = policy_step(_net("ppo"), encode_state(obs), encode_actions(obs), np.random.default_rng(0), True)
+        net = _net("ppo")
+        _, _, p = policy_step(net, encode_state(obs, net.version), encode_actions(obs, net.version),
+                              np.random.default_rng(0), True)
         top = np.argsort(-p)[:k]
         return [{"move": zh.move_zh(legal[i]), "cards": list(legal[i].cards), "p": round(float(p[i]), 2)} for i in top]
     i = HeuristicAgent(0).act(obs)

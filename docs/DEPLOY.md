@@ -54,6 +54,21 @@ real machine before raising it much
 (`python scripts/loadtest.py --tables 10 30 --seconds 60`). Run it on the server
 itself, so the tunnel isn't part of the measurement.
 
+## The search AI and the Rust core
+
+The default AI, `ppo+` ("PPO+搜索"), looks ahead with the PPO policy and needs the Rust core
+(`guandan_core`). `make_bundle.sh` cross-compiles it for the server (Linux x86-64, glibc 2.28+) and
+puts the wheel in the bundle; this needs `pip install maturin ziglang` and a Rust toolchain on
+the machine that builds the bundle. If the wheel can't be built, or won't install on the server,
+setup says so, the server runs the Python engine, and `ppo+` is not offered (hosts get `ppo`).
+The setup self-check prints `engine: rust` and `search AI (ppo+): on` when it works.
+
+Each `ppo+` move took about 30-50 ms of one core on the development laptop with the defaults (32
+sampled hands, top 4 moves); expect about twice that on a cloud vCPU. Compare that with the 0.9 s
+pacing between AI moves. To tune it, set these in the service environment: `GUANDAN_SEARCH_WORLDS`,
+`GUANDAN_SEARCH_TOPK`, or `GUANDAN_SEARCH=0` to turn it off. Re-run `scripts/loadtest.py` on the
+server before raising the table count if most seats are `ppo+`.
+
 ## Getting the code onto a server in China
 
 Servers in mainland China often can't reach GitHub, and PyPI is slow there.

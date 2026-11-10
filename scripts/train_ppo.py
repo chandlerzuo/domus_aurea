@@ -23,6 +23,14 @@ if __name__ == "__main__":
     ap.add_argument("--device", default="auto")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--init", help="start from this policy checkpoint (widened to --version if older)")
+    ap.add_argument("--version", type=int, default=1, help="feature version for new networks / widening (1 or 2)")
+    ap.add_argument("--steps-per-update", type=int, default=65536)
+    ap.add_argument("--epochs", type=int, default=2)
+    ap.add_argument("--queue", type=int, default=1, help="tasks queued per actor; more keeps actors busy but trains on staler data")
+    ap.add_argument("--tables", type=int, default=32, help="deals each actor plays side by side (Rust core)")
     a = ap.parse_args()
-    cfg = PPOConfig(workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed)
-    train(cfg, a.bc_deals, a.ppo_deals, a.out, resume=a.resume)
+    cfg = PPOConfig(workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
+                    steps_per_update=a.steps_per_update, tables_per_worker=a.tables, epochs=a.epochs,
+                    queue_per_worker=a.queue)
+    train(cfg, a.bc_deals, a.ppo_deals, a.out, resume=a.resume, init=a.init)

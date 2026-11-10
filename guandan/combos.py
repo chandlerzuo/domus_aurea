@@ -225,7 +225,7 @@ class _Picker:
         return tuple(cards + self.wild[:need_wild])
 
 
-def legal_moves(hand, level: int, table: Combo | None) -> list[Move]:
+def legal_moves_py(hand, level: int, table: Combo | None) -> list[Move]:
     """All moves from `hand` that may be played over `table` (None = leading, PASS excluded)."""
     p = _Picker(hand, level)
     c = p.counts
@@ -280,3 +280,31 @@ def legal_moves(hand, level: int, table: Combo | None) -> list[Move]:
     out.sort(key=lambda m: (m.combo.is_bomb, m.combo.kind, m.combo.power() if m.combo.is_bomb else (0, m.combo.value)))
     return out
 
+
+
+# ---- Rust backend -----------------------------------------------------------
+# guandan_core (built from rust/ with maturin) returns exactly the same moves in the same
+# order; GUANDAN_ENGINE=python forces the reference implementation above.
+
+import os
+
+try:
+    import guandan_core as _core
+except ImportError:  # extension not built
+    _core = None
+
+FAST = _core is not None and os.environ.get("GUANDAN_ENGINE", "rust") != "python"
+KINDS = list(Kind)
+
+
+def move_from_tuple(t) -> Move:
+    kind, value, size, cards = t
+    return PASS if kind == Kind.PASS else Move(Combo(KINDS[kind], value, size), tuple(cards))
+
+
+def legal_moves(hand, level: int, table: Combo | None) -> list[Move]:
+    """All moves from `hand` that may be played over `table` (None = leading, PASS excluded)."""
+    if FAST:
+        t = None if table is None else (int(table.kind), table.value, table.size)
+        return [move_from_tuple(m) for m in _core.legal_moves_py(list(hand), level, t)]
+    return legal_moves_py(hand, level, table)

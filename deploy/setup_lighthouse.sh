@@ -121,7 +121,7 @@ if [ -d "$APP.new" ]; then
   mv "$APP.new" "$APP"
   rm -rf "$APP.old"
 fi
-[ -f "$APP/runs/ppo/model.pt" ] || echo "warning: no trained PPO model in the code; AI players fall back to the heuristic"
+[ -f "$APP/runs/ppo/model.pt" ] || die "the code has no trained PPO model (runs/ppo/model.pt): commit it, rebuild the bundle, and retry (without it the AI players would silently be the weak heuristic)"
 echo "installed $(cd "$APP" && (git rev-parse --short HEAD 2>/dev/null || basename "$SRC")) into $APP"
 
 step "3/7 python packages"
@@ -131,6 +131,12 @@ if [ -z "$REPO" ] && [ -d "$SRC/wheels" ]; then
   [ "$WPY" = "$PYV" ] || die "bundle wheels are for Python $WPY but this machine has $PYV; rebuild with: deploy/make_bundle.sh --python $PYV"
   echo "offline wheels ($WPLAT, Python $WPY)"
   "$VENV/bin/pip" install -q --no-index --find-links "$SRC/wheels" numpy torch
+  if ls "$SRC/wheels"/guandan_core-*.whl >/dev/null 2>&1; then
+    "$VENV/bin/pip" install -q --no-index --find-links "$SRC/wheels" guandan_core \
+      || echo "warning: the Rust core would not install; using the Python engine (slower, no ppo+ search)"
+  else
+    echo "note: this bundle has no Rust core; using the Python engine (slower, no ppo+ search)"
+  fi
 else
   "$VENV/bin/pip" install -q --index-url "$PIP_INDEX" "numpy>=1.26"
   "$VENV/bin/pip" install -q --index-url "$TORCH_INDEX" "torch>=2.2" \
@@ -147,11 +153,23 @@ fi
 (cd "$APP" && "$VENV/bin/python" - "$HOST" <<'EOF'
 import sys
 from guandan.server.server import check_bind
-from guandan.server.tables import agent_kinds
+from guandan.server.tables import MODELS, agent_kinds, default_ai, make_agent
 check_bind(sys.argv[1])  # exits with an explanation for wildcard/public addresses
 print("agents:", ", ".join(agent_kinds()))
+# The trained model must actually load and play: the lobby only checks that the file exists.
+import hashlib
+import numpy as np
+from guandan.game import Deal, deal_cards
+assert default_ai() in ("ppo+", "ppo"), f"default AI is {default_ai()!r}, not the trained PPO model"
+d = Deal(deal_cards(np.random.default_rng(0)), 3, 0)
+obs = d.observation(0)
+for kind in [k for k in ("ppo", "ppo+") if k in agent_kinds()]:
+    assert 0 <= make_agent(kind, seed=0).act(obs) < len(obs["legal"]), kind
+from guandan.combos import FAST
+print("trained PPO model OK, sha256", hashlib.sha256(MODELS["ppo"].read_bytes()).hexdigest()[:16])
+print("engine:", "rust" if FAST else "python (slower)", "| search AI (ppo+):", "on" if "ppo+" in agent_kinds() else "off")
 EOF
-)
+) || die "the trained PPO model failed its self-check (see above); not starting the service"
 
 step "5/7 service"
 ARGS=(--host "$HOST" --port "$PORT" --tables "$TABLES" --db "$DATA/games.db")

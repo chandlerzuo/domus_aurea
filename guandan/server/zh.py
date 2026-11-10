@@ -13,7 +13,7 @@ TEAMS = ["南北", "东西"]
 PLACES = ["头游", "二游", "三游", "末游"]
 RANKS_ZH = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
 SUITS_ZH = "♠♥♣♦"
-AGENTS = {"ppo": "PPO", "dmc": "DMC", "heuristic": "规则", "random": "随机"}
+AGENTS = {"ppo+": "PPO+搜索", "ppo": "PPO", "dmc": "DMC", "heuristic": "规则", "random": "随机"}
 KINDS = {
     Kind.PASS: "不出", Kind.SINGLE: "单张", Kind.PAIR: "对子", Kind.TRIPLE: "三张",
     Kind.FULL_HOUSE: "三带二", Kind.STRAIGHT: "顺子", Kind.TUBE: "三连对", Kind.PLATE: "钢板",

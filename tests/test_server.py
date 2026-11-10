@@ -147,3 +147,23 @@ def test_leaving_mid_match_hands_seat_to_ai(base):
     assert t["status"] == "playing" and t["seats"][2]["kind"] != "human"
     call(base, "/api/table/1/leave", {}, alice)
     assert call(base, "/api/lobby")[1]["tables"][0]["status"] == "open"
+
+
+def test_search_ai_is_offered_and_plays_a_deal(base):
+    pytest.importorskip("guandan_core")
+    from guandan.server.tables import MODELS
+    if not MODELS["ppo"].exists():
+        pytest.skip("no trained PPO model")
+    assert "ppo+" in call(base, "/api/lobby")[1]["agents"]
+    alice = sit(base, 1, 0, "Alice")
+    for seat in (1, 2, 3):
+        assert call(base, "/api/table/1/seat", {"seat": seat, "kind": "ppo+"}, alice)[0] == 200
+    s = call(base, "/api/table/1/start", {}, alice)[1]
+    assert [x["kind"] for x in s["seats"]] == ["human", "ppo+", "ppo+", "ppo+"]
+    s = play_until_done(base, [(1, alice)], deals=1, max_requests=40000)
+    assert len(s["deal_ids"]) >= 1
+
+
+def test_default_ai_is_the_search_player_when_available():
+    from guandan.server.tables import default_ai, search_available
+    assert default_ai() == ("ppo+" if search_available() else "ppo")

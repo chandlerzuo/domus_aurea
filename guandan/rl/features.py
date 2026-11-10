@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..cards import N_TYPES, ctype, is_wild
-from ..combos import Kind, Move
+from ..cards import BJ, SJ, N_TYPES, ctype, is_wild, wild_type
+from ..combos import SEQ, Kind, Move
 
 CARD_DIM = 2 * N_TYPES
 HISTORY = 8
@@ -23,6 +23,22 @@ STATE_DIM = (CARD_DIM * 5          # hand, unseen, played by next / partner / pr
              + HISTORY * (CARD_DIM + 4))
 ACTION_DIM = CARD_DIM + N_KINDS + 3 + 1 + 16
 
+# Version 2 appends to version 1 (a v1 network is widened with zero weights): 8 older history
+# slots on the state; on each action, the hand left after the move (card bits) plus
+# unary-coded summary counts. Mirrors rust/src/features.rs.
+HISTORY_V2 = 16
+STATE_DIM_V2 = STATE_DIM + (HISTORY_V2 - HISTORY) * (CARD_DIM + 4)
+AGG = 27 + 6 * 4 + 4 + 2 + 14 * 3
+ACTION_DIM_V2 = ACTION_DIM + CARD_DIM + AGG
+
+
+def state_dim(version: int = 1) -> int:
+    return STATE_DIM_V2 if version >= 2 else STATE_DIM
+
+
+def action_dim(version: int = 1) -> int:
+    return ACTION_DIM_V2 if version >= 2 else ACTION_DIM
+
 
 def card_vec(cards, out: np.ndarray | None = None) -> np.ndarray:
     v = np.zeros(CARD_DIM, np.uint8) if out is None else out
@@ -32,10 +48,11 @@ def card_vec(cards, out: np.ndarray | None = None) -> np.ndarray:
     return v
 
 
-def encode_state(obs: dict) -> np.ndarray:
+def encode_state(obs: dict, version: int = 1) -> np.ndarray:
     seat = obs["seat"]
     rel = [(seat + k) % 4 for k in (1, 2, 3)]
-    x = np.zeros(STATE_DIM, np.uint8)
+    slots = HISTORY_V2 if version >= 2 else HISTORY
+    x = np.zeros(state_dim(version), np.uint8)
     o = 0
 
     def cards(cs):
@@ -72,20 +89,55 @@ def encode_state(obs: dict) -> np.ndarray:
     for s in rel:
         onehot(0 if s in obs["finished"] else None, 1)
     onehot(0 if obs["leading"] else None, 1)
-    hist = obs["history"][-HISTORY:]
-    for k in range(HISTORY):
+    hist = obs["history"][-slots:]
+    for k in range(slots):
         if k < len(hist):
             s, m = hist[-1 - k]
             cards(m.cards)
             onehot((s - seat) % 4, 4)
         else:
             o += CARD_DIM + 4
-    assert o == STATE_DIM
+    assert o == state_dim(version)
     return x
 
 
-def encode_action(m: Move, hand_size: int, level: int) -> np.ndarray:
-    x = np.zeros(ACTION_DIM, np.uint8)
+def _remaining(m: Move, hand, level: int, out: np.ndarray) -> None:
+    """Version-2 columns: the hand left after `m`, then unary-coded counts."""
+    rem = list(hand)
+    for c in m.cards:
+        rem.remove(c)
+    card_vec(rem, out[:CARD_DIM])
+    wt = wild_type(level)
+    nr, sj, bj, wild = [0] * 13, 0, 0, 0
+    for c in rem:
+        t = ctype(c)
+        if t == wt:
+            wild += 1
+        elif t == SJ:
+            sj += 1
+        elif t == BJ:
+            bj += 1
+        else:
+            nr[t % 13] += 1
+
+    def run(k: int) -> int:
+        best = cur = 0
+        for r in SEQ:
+            cur = cur + 1 if nr[r] >= k else 0
+            best = max(best, cur)
+        return best
+
+    at = CARD_DIM
+    for v, cap in ((len(rem), 27), (sum(1 for x in nr if x == 1), 6), (sum(1 for x in nr if x == 2), 6),
+                   (sum(1 for x in nr if x == 3), 6), (sum(1 for x in nr if x >= 4), 6), (sj + bj, 4), (wild, 2),
+                   (run(1), 14), (run(2), 14), (run(3), 14)):
+        out[at:at + min(v, cap)] = 1
+        at += cap
+    assert at == CARD_DIM + AGG
+
+
+def encode_action(m: Move, hand_size: int, level: int, version: int = 1, hand=None) -> np.ndarray:
+    x = np.zeros(action_dim(version), np.uint8)
     card_vec(m.cards, x[:CARD_DIM])
     o = CARD_DIM
     x[o + int(m.combo.kind)] = 1
@@ -95,9 +147,11 @@ def encode_action(m: Move, hand_size: int, level: int) -> np.ndarray:
     x[o] = len(m.cards) == hand_size
     o += 1
     x[o + min(15, m.combo.value)] = 1
+    if version >= 2:
+        _remaining(m, hand, level, x[ACTION_DIM:])
     return x
 
 
-def encode_actions(obs: dict) -> np.ndarray:
-    n, level = len(obs["hand"]), obs["level"]
-    return np.stack([encode_action(m, n, level) for m in obs["legal"]])
+def encode_actions(obs: dict, version: int = 1) -> np.ndarray:
+    hand, level = obs["hand"], obs["level"]
+    return np.stack([encode_action(m, len(hand), level, version, hand) for m in obs["legal"]])

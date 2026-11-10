@@ -64,3 +64,29 @@ def test_bc_learns_and_ppo_runs(tmp_path):
     while not d.done:
         obs = d.observation(d.to_act)
         d.play(obs["legal"][agent.act(obs)])
+
+
+def test_widened_policy_plays_exactly_like_the_original():
+    from guandan.rl.features import encode_actions, encode_state
+    from guandan.rl.policy import widen_policy
+    torch.manual_seed(0)
+    actor, critic = Actor(64), Critic(64)
+    # make every weight non-trivial so a column mix-up would show
+    for p in [*actor.parameters(), *critic.parameters()]:
+        torch.nn.init.normal_(p, std=0.2)
+    wa, wc = widen_policy(actor, critic, 2)
+    assert (wa.version, wc.version) == (2, 2)
+    rng = np.random.default_rng(0)
+    d = Deal(deal_cards(rng), 4, 0)
+    checked = 0
+    while not d.done and checked < 40:
+        obs = d.observation(d.to_act)
+        if len(obs["legal"]) > 1:
+            s1, a1, s2, a2 = encode_state(obs, 1), encode_actions(obs, 1), encode_state(obs, 2), encode_actions(obs, 2)
+            f = lambda x: torch.from_numpy(x).float()
+            assert torch.allclose(actor.move_logits(f(s1), f(a1)), wa.move_logits(f(s2), f(a2)), atol=1e-5)
+            o = f(encode_oracle(d.hands, d.to_act))
+            assert torch.allclose(critic(f(s1)[None], o[None]), wc(f(s2)[None], o[None]), atol=1e-5)
+            checked += 1
+        d.play(obs["legal"][int(rng.integers(len(obs["legal"])))])
+    assert checked > 10

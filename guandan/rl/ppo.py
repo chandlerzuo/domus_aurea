@@ -31,8 +31,10 @@ from torch import nn
 from ..agents import Agent, HeuristicAgent
 from ..game import team
 from .dmc import DEFAULT_MODEL as DMC_MODEL, REWARD_SCALE, DMCAgent, _device, load_net, random_match
+from . import fast as fast_rl
 from .features import encode_actions, encode_state
-from .policy import Actor, Critic, PolicyAgent, encode_oracle, load_policy, padded_log_probs, policy_step, save_policy
+from .policy import (Actor, Critic, PolicyAgent, encode_oracle, load_policy, padded_log_probs, policy_step,
+                     save_policy, widen_policy)
 
 torch.set_num_threads(1)
 FIELDS = ("S", "O", "n", "chosen", "logp", "adv", "ret")
@@ -59,7 +61,11 @@ class PPOConfig:
     p_tribute: float = 0.75
     snapshot_every: int = 10       # PPO updates between snapshots
     max_snapshots: int = 20
-    deals_per_task: int = 8
+    deals_per_task: int = 8        # per task without the Rust core
+    fast: bool = True              # batched actors on the Rust core when it is built
+    version: int = 1               # feature version for networks created from scratch (see features.py)
+    tables_per_worker: int = 32    # deals played side by side in one batched task
+    queue_per_worker: int = 1      # tasks in flight per actor; more keeps actors busy but trains on staler data
     workers: int = 0
     device: str = "auto"
     seed: int = 0
@@ -142,7 +148,8 @@ def play_task(seed: int, n_deals: int, mode: str, latest: tuple[str, int] | None
             if not learn[seat]:
                 d.play(legal[agents[seat].act(obs)])
                 continue
-            s, a, o = encode_state(obs), encode_actions(obs), encode_oracle(d.hands, seat)
+            ver = actor.version if mode == "ppo" else cfg.version
+            s, a, o = encode_state(obs, ver), encode_actions(obs, ver), encode_oracle(d.hands, seat)
             tr = trajs[seat]
             if mode == "bc":
                 i, lp, v = agents[seat].act(obs), 0.0, 0.0
@@ -183,6 +190,26 @@ def play_task(seed: int, n_deals: int, mode: str, latest: tuple[str, int] | None
     return res
 
 
+def play_task_fast(seed: int, n_deals: int, mode: str, latest: tuple[str, int], snapshots: list[str]) -> dict:
+    """Batched equivalent of `play_task` on the Rust core; each deal draws its own opponent."""
+    cfg: PPOConfig = _W["cfg"]
+    rng = np.random.default_rng(seed)
+    learner = _actor(*latest) if mode == "ppo" else None
+
+    def opponents(r: np.random.Generator):
+        u = r.random()
+        if u < cfg.p_heuristic:
+            return "heuristic", None
+        if u < cfg.p_heuristic + cfg.p_dmc and DMC_MODEL.exists():
+            return "dmc", _dmc_net()
+        if u < cfg.p_heuristic + cfg.p_dmc + cfg.p_snapshot and snapshots:
+            return "snapshot", _actor(snapshots[int(r.integers(len(snapshots)))], 0)[0]
+        return "self", None
+
+    return fast_rl.play_batch(rng, n_deals, mode, learner, opponents, cfg.p_tribute, cfg.lam, REWARD_SCALE,
+                              width=cfg.tables_per_worker, version=cfg.version)
+
+
 # ---- learner ----------------------------------------------------------------
 
 class Batch:
@@ -197,7 +224,28 @@ class Batch:
     def __len__(self) -> int:
         return len(self.n)
 
+    def to_device(self, dev: torch.device) -> "Batch":
+        """Keep the whole batch on the learner device (uint8 inputs are small), so minibatches are
+        sliced there instead of gathered on the CPU and copied every step."""
+        if dev.type == "cpu":
+            return self
+        t = lambda x: torch.from_numpy(np.ascontiguousarray(x)).to(dev)
+        self._dev = {"S": t(self.S), "O": t(self.O), "A": t(self.A), "n": t(self.n.astype(np.int64)),
+                     "off": t(self.off.astype(np.int64)), "chosen": t(self.chosen), "logp": t(self.logp),
+                     "adv": t(self.adv), "ret": t(self.ret)}
+        return self
+
     def minibatch(self, idx: np.ndarray, dev: torch.device) -> dict:
+        d = getattr(self, "_dev", None)
+        if d is not None:
+            ix = torch.from_numpy(idx).to(dev)
+            c = d["n"][ix]
+            seg = torch.repeat_interleave(torch.arange(len(ix), device=dev), c)
+            pos = torch.arange(int(c.sum()), device=dev) - torch.repeat_interleave(torch.cumsum(c, 0) - c, c)
+            rows = d["off"][ix][seg] + pos
+            return {"s": d["S"][ix].float(), "o": d["O"][ix].float(), "a": d["A"][rows].float(), "seg": seg,
+                    "pos": pos, "width": int(c.max()), "chosen": d["chosen"][ix], "logp": d["logp"][ix],
+                    "adv": d["adv"][ix], "ret": d["ret"][ix]}
         c = self.n[idx]
         seg = np.repeat(np.arange(len(idx)), c)
         pos = np.arange(c.sum()) - np.repeat(np.cumsum(c) - c, c)
@@ -271,7 +319,8 @@ def ppo_update(actor, critic, opt, batch: Batch, cfg: PPOConfig, rng, dev) -> di
     return {key: val / max(k, 1) for key, val in stats.items()}
 
 
-def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume: bool = False, log=print):
+def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume: bool = False, log=print,
+          init: str | Path | None = None):
     out = Path(out)
     (out / "snapshots").mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(asdict(cfg), indent=2))
@@ -279,13 +328,19 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
     rng = np.random.default_rng(cfg.seed)
     workers = cfg.workers or max(1, (os.cpu_count() or 2) - 1)
     start = out / "model.pt" if resume and (out / "model.pt").exists() else None
+    if start is None and init is not None:
+        start = Path(init)
     if start is None and bc_deals == 0 and (out / "bc.pt").exists():
         start = out / "bc.pt"
     if start is not None:
         actor, critic = load_policy(start, critic=True)
-        log(f"starting from {start}")
+        log(f"starting from {start} (feature version {actor.version})")
+        if actor.version < cfg.version:
+            actor, critic = widen_policy(actor, critic, cfg.version)
+            log(f"widened to feature version {cfg.version}: new input columns start at zero weight")
+        cfg.version = actor.version
     else:
-        actor, critic = Actor(cfg.hidden), Critic(cfg.hidden)
+        actor, critic = Actor(cfg.hidden, cfg.version), Critic(cfg.hidden, cfg.version)
     actor, critic = actor.to(dev).train(), critic.to(dev).train()
     latest = out / "latest.pt"
     metrics = open(out / "metrics.jsonl", "a")
@@ -300,6 +355,10 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
         scores = {k: deque(maxlen=2000) for k in ("self", "heuristic", "dmc", "snapshot", "bc")}
         t0 = last = time.time()
         last_stats: dict = {}
+        learn_time = 0.0
+
+        use_fast = cfg.fast and fast_rl.AVAILABLE
+        log(f"[{stage}] actors: {'batched, Rust core' if use_fast else 'one deal at a time, Python'}")
 
         def opponent() -> tuple[str, str]:
             u = rng.random()
@@ -316,11 +375,16 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
 
             def submit():
                 nonlocal submitted
+                if use_fast:
+                    args = (int(rng.integers(2**31)), cfg.tables_per_worker, stage, (str(latest), version), list(snapshots))
+                    inflight.add(pool.submit(play_task_fast, *args))
+                    submitted += cfg.tables_per_worker
+                    return
                 args = (int(rng.integers(2**31)), cfg.deals_per_task, stage, (str(latest), version))
                 inflight.add(pool.submit(play_task, *args, opponent() if stage == "ppo" else ("self", "")))
                 submitted += cfg.deals_per_task
 
-            for _ in range(2 * workers):
+            for _ in range(cfg.queue_per_worker * workers):
                 if submitted < deals:
                     submit()
             while inflight:
@@ -329,16 +393,22 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
                     inflight.discard(f)
                     r = f.result()
                     done += r["deals"]
-                    scores[r["opponent"]].extend(r["scores"])
+                    if "scores_by" in r:
+                        for k, v in r["scores_by"].items():
+                            scores[k].extend(v)
+                    else:
+                        scores[r["opponent"]].extend(r["scores"])
                     parts.append(r)
                     buffered += len(r["n"])
                     if submitted < deals:
                         submit()
                 if buffered >= need or (not inflight and buffered):
-                    batch = Batch(parts)
+                    batch = Batch(parts).to_device(dev)
                     parts, buffered = [], 0
                     upd = bc_update if stage == "bc" else ppo_update
+                    tu = time.time()
                     last_stats = upd(actor, critic, opt, batch, cfg, rng, dev)
+                    learn_time += time.time() - tu
                     updates += 1
                     save_policy(actor, critic, latest)
                     version += 1
@@ -354,7 +424,8 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
                     el = last - t0
                     vs = {k: round(float(np.mean(q)), 3) for k, q in scores.items() if q and k not in ("bc", "self")}
                     st = " ".join(f"{k} {v:.3f}" for k, v in last_stats.items())
-                    log(f"[{stage}] deals {done:>9,}  {done / el:5.0f}/s  updates {updates:>5}  {st}  vs {vs}")
+                    log(f"[{stage}] deals {done:>9,}  {done / el:5.0f}/s  learner {100 * learn_time / el:3.0f}%  "
+                        f"updates {updates:>5}  {st}  vs {vs}")
                     metrics.write(json.dumps({"stage": stage, "time": el, "deals": done, "updates": updates,
                                               **last_stats, **{f"vs_{k}": v for k, v in vs.items()}}) + "\n")
                     metrics.flush()

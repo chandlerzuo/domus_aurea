@@ -85,12 +85,12 @@ def review_deal(record: dict, actor: Actor, seat: int = 0, rollouts: int = 24, m
             if len(legal) > 1:
                 sig = _signature(played, level)
                 idx = next((i for i, m in enumerate(legal) if _signature(m, level) == sig), None)
-                acts = encode_actions(obs)
+                acts = encode_actions(obs, actor.version)
                 if idx is None:  # e.g. the player used a wild where the generator would not
                     legal.append(played)
                     acts = np.vstack([acts, encode_action(played, len(obs["hand"]), level)])
                     idx = len(legal) - 1
-                _, _, p = policy_step(actor, encode_state(obs), acts, rng, greedy=True)
+                _, _, p = policy_step(actor, encode_state(obs, actor.version), acts, rng, greedy=True)
                 best = int(p.argmax())
                 decisions.append({
                     "step": step, "played": label_fn(played), "p_played": round(float(p[idx]), 3),

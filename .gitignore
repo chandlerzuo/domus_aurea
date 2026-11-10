@@ -15,6 +15,9 @@ runs/dmc/*
 !runs/ppo/
 runs/ppo/*
 !runs/ppo/model.pt
+!runs/ppo/v1.pt
+!runs/ppo/config_v1.json
 !runs/ppo/bc.pt
 !runs/ppo/config.json
 dist/
+rust/target/

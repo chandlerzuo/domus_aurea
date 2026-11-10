@@ -114,7 +114,13 @@ simulator knows). It shapes the shared representation. The predicted beliefs
 can also be fed back as features, and they are exactly what search (below)
 needs to sample realistic deals. It is cheap to add to DMC or PPO.
 
-### 5. Test-time search
+### 5. Test-time search: PIMC implemented (`guandan/rl/search.py`)
+
+Measured here: PIMC adds +0.88 ± 0.09 levels/deal over the previous PPO policy (32 sampled
+hands, top 4 moves) and +0.32 to +0.44 (±0.11) over the stronger feature-version-2 policy, at 30-50 ms a
+decision. The sampled hands ignore what passes imply about a player's hand, so weighting
+them by the policy's likelihood of the observed plays is the obvious next step (it helped in
+poker_ai's search).
 
 - **PIMC (perfect-information Monte Carlo)**: sample hands for the other
   three players that are consistent with the play so far (and with the
@@ -128,6 +134,19 @@ needs to sample realistic deals. It is cheap to add to DMC or PPO.
 - **IS-MCTS** (information-set MCTS) with the Q-network as prior and leaf
   evaluator, AlphaZero-style. It is more expensive and fiddly in a
   four-player team game, but it is the principled version of PIMC.
+
+**Training the policy toward the search player's choices (tried, no gain).**
+`guandan/rl/distill.py`, `scripts/label_search.py` and `scripts/fit_distill.py` label decisions
+with the search (policy shifted toward the better-looking candidates) and fit the policy to the
+labels. On the shipped model, 100k labels took 34 minutes on 10 cores. Search overruled the
+policy's top move in 9.3% of them. A round of fitting left the policy unchanged
+(+0.003 ± 0.062 levels/deal against the original, 1,400 deals). Offline, on 50k labels with 10% held
+out: fitting at ordinary step sizes made the training labels easier but the held-out ones slightly
+harder (cross-entropy 0.588 → 0.593), i.e. it memorised noise; at very small steps held-out
+cross-entropy improved by only 0.001. Search's gain is spread thinly over many decisions
+and each label is a noisy estimate, so this needs millions of labels (days of compute here), while
+the same compute in PPO gave +0.17 over 2.5M deals. Search at play time (`ppo+`) is the better
+use of search. Better-weighted sampling of hidden hands would be a cheaper next step.
 
 ### 6. Imitation / warm start: implemented
 

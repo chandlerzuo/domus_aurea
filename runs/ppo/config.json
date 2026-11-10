@@ -1,7 +1,7 @@
 {
   "hidden": 512,
   "bc_lr": 0.0003,
-  "lr": 3e-05,
+  "lr": 0.0001,
   "clip": 0.2,
   "epochs": 2,
   "minibatch": 4096,
@@ -19,7 +19,11 @@
   "snapshot_every": 10,
   "max_snapshots": 20,
   "deals_per_task": 8,
-  "workers": 12,
+  "fast": true,
+  "version": 2,
+  "tables_per_worker": 32,
+  "queue_per_worker": 1,
+  "workers": 10,
   "device": "auto",
   "seed": 0
 }

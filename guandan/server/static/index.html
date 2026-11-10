@@ -143,9 +143,9 @@ const SUIT = { s: "♠", h: "♥", c: "♣", d: "♦" };
 const RANKS = "23456789TJQKA", SUITS = "shcd";
 const NAMES = ["南", "东", "北", "西"];
 const PLACES = ["头游", "二游", "三游", "末游"];
-const AGENT_NAMES = { ppo: "PPO", dmc: "DMC", heuristic: "规则", random: "随机" };
+const AGENT_NAMES = { "ppo+": "PPO+搜索", ppo: "PPO", dmc: "DMC", heuristic: "规则", random: "随机" };
 const agentName = a => AGENT_NAMES[a] || a;
-const agentOption = a => a === "ppo" ? "PPO（推荐，最强）" : agentName(a);
+const agentOption = a => a === "ppo+" ? "PPO+搜索（推荐，最强）" : agentName(a);
 const playedText = m => m === "不出" ? "选择了不出" : `出了 ${m}`;
 const POS = ["pos-bottom", "pos-right", "pos-top", "pos-left"];  // by seat relative to the viewer
 let route = { view: "lobby" }, state = null, selected = new Set(), poll = null, lobbyData = null;
@@ -340,7 +340,7 @@ function renderWaiting() {
       if (info.kind === "empty") {
         const sel = document.createElement("select");
         lobbyAgents().forEach(a => sel.append(option(a, agentOption(a))));
-        sel.value = ["ppo", "dmc"].find(a => lobbyAgents().includes(a)) || "heuristic";
+        sel.value = ["ppo+", "ppo", "dmc"].find(a => lobbyAgents().includes(a)) || "heuristic";
         const b = text("button", "加入 AI", "secondary");
         b.onclick = () => act("seat", { seat, kind: sel.value });
         row.append(sel, b);
