@@ -283,6 +283,10 @@ async function handleApi(req, res, url) {
       const s = t.seats[k];
       if (!isHost || !s || s.state !== 'ai') return json(res, 403, { error: '無權變更此座位' });
       t.seats[k] = { state: 'open' };
+    } else if (op === 'move') {   // 已入座者換到另一個空位（桌主也一樣）
+      if (!Number.isInteger(k) || !t.seats[k] || t.seats[k].state !== 'open') return json(res, 409, { error: '這個座位已有人' });
+      t.seats[k] = t.seats[me.k];
+      t.seats[me.k] = { state: 'open' };
     } else if (op === 'pick') {   // 選擇（或改選）自己的主帥：主題定了才能選
       if (needTheme()) return;
       if (!Number.isInteger(body.cmd) || !COMMANDER_IDS.includes(body.cmd)) return json(res, 400, { error: '未知的主帥' });

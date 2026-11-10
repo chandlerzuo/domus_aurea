@@ -431,7 +431,7 @@ function renderLobby() {
     $('#seatRows').innerHTML = L.seats.map((s, k) => {
       const sw = `<span class="swatch" style="background:${PLAYER_COLORS[k]}"></span> 第 ${k + 1} 位`;
       if (s.state === 'open') {
-        return `<div class="seat"><div class="row">${sw}　<i>空位</i>${you.host ? `<button data-ai="${k}" ${free.length ? '' : 'disabled'}>設為電腦</button>` : ''}</div>
+        return `<div class="seat"><div class="row">${sw}　<i>空位</i>${you.seat != null ? `<button data-move="${k}">坐到這裡</button>` : ''}${you.host ? `<button data-ai="${k}" ${free.length ? '' : 'disabled'}>設為電腦</button>` : ''}</div>
           ${you.seat == null ? `<div class="heroes row">${heroBtns(k, true, null)}</div>` : ''}</div>`;
       }
       const who = s.state === 'ai' ? '電腦' : (s.mine ? '你' : '玩家') + (s.host ? '（桌主）' : '') + (s.online ? '' : '（離線）');
@@ -466,6 +466,7 @@ function renderLobby() {
     if (you.seat == null) return join({ seat: +b.dataset.seat, cmd: +b.dataset.hero });
     const r = await api('api/lobby', { op: 'pick', cmd: +b.dataset.hero }); if (r.error) alert(r.error);
   });
+  $('#seatRows').querySelectorAll('[data-move]').forEach(b => b.onclick = async () => { const r = await api('api/lobby', { op: 'move', seat: +b.dataset.move }); if (r.error) alert(r.error); });
   $('#seatRows').querySelectorAll('[data-ai]').forEach(b => b.onclick = () => api('api/lobby', { op: 'ai', seat: +b.dataset.ai, cmd: free[0] }));
   $('#seatRows').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => api('api/lobby', { op: 'open', seat: +b.dataset.remove }));
   $('#seatRows').querySelectorAll('[data-leave]').forEach(b => b.onclick = leaveSeat);

@@ -54,7 +54,13 @@
   .hand .card { width: 46px; height: 68px; font-size: 16px; flex-direction: row; justify-content: center; align-items: flex-start; padding-top: 3px; box-sizing: border-box; flex: none; }
   .hand .card br { display: none; }
   .hand .card.joker { padding-top: 6px; }
-  .hand .card.sel { z-index: 1; }
+  /* Selected cards leave their column and wait in the tray above the hand, so the rest of the column stays easy to click. */
+  .picked { display: flex; align-items: center; gap: 10px; min-height: 84px; padding: 4px 8px; margin-top: 6px; border: 1px dashed rgba(232,197,71,.55); border-radius: 8px; background: rgba(232,197,71,.07); }
+  .picked.hidden { display: none; }
+  .picked .label { font-size: 13px; color: #e8c547; white-space: nowrap; }
+  .picked .cards { margin: 0; gap: 4px; flex-wrap: wrap; }
+  .picked .card { width: 46px; height: 68px; font-size: 16px; flex-direction: row; justify-content: center; align-items: flex-start; padding-top: 3px; box-sizing: border-box; cursor: pointer; box-shadow: 0 3px 0 #e8c547; }
+  .picked .card br { display: none; }
   .hand.mine .card[draggable="true"] { cursor: grab; }
   .hand .card.dragging { opacity: .35; }
   .hand .gap { flex: none; width: 6px; align-self: stretch; border-radius: 6px; transition: width .1s; }
@@ -100,6 +106,7 @@
         <div class="seat pos-right" id="pos-right"></div>
         <div class="seat pos-bottom" id="pos-bottom">
           <div id="mine"></div>
+          <div class="picked hidden" id="picked"><span class="label">已选 <b id="pickedN">0</b></span><div class="cards" id="pickedCards"></div></div>
           <div class="cards hand" id="hand"></div>
           <div class="controls hidden" id="hostControls">
             <button id="startBtn">开始对局</button>
@@ -232,10 +239,11 @@ function renderHand(s) {
   hand.classList.toggle("mine", s.as_player);
   reconcileHand(s.hand, s.deal_no);
   const cardById = new Map(s.hand.map(c => [c.id, c]));
+  const order = new Map(s.hand.map((c, i) => [c.id, i]));   // the server sends the hand sorted ascending
+  handLayout.cols.forEach(col => col.sort((a, b) => order.get(a) - order.get(b)));   // a column is always in ascending order
   const mine = s.as_player;
   const startDrag = (e, id) => {
-    const order = handLayout.cols.flat();
-    dragIds = selected.has(id) ? order.filter(x => selected.has(x)) : [id];   // dragging a selected card takes all selected cards
+    dragIds = [id];
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(id));
     setTimeout(() => { hand.classList.add("dragging"); hand.querySelectorAll(".card").forEach(el => { if (dragIds && dragIds.includes(+el.dataset.id)) el.classList.add("dragging"); }); }, 0);
@@ -253,14 +261,15 @@ function renderHand(s) {
     return g;
   };
   handLayout.cols.forEach((col, ci) => {
+    const shown = col.filter(id => !selected.has(id));   // selected cards are in the tray
+    if (!shown.length) return;
     hand.append(gap(ci));
     const colEl = document.createElement("div");
     colEl.className = "hcol";
-    for (const id of col) {
+    for (const id of shown) {
       const card = cardById.get(id);
       const el = cardEl(card.label, card.wild);
       el.dataset.id = id;
-      if (selected.has(id)) el.classList.add("sel");
       if (mine) {
         el.onclick = () => { selected.has(id) ? selected.delete(id) : selected.add(id); render(); };
         el.draggable = true;
@@ -271,7 +280,7 @@ function renderHand(s) {
     }
     if (mine) allowDrop(colEl, e => {
       // insert before the first card whose middle is below the pointer; otherwise at the bottom
-      const m = dragIds, rest = col.filter(x => !m.includes(x));
+      const m = dragIds, rest = shown.filter(x => !m.includes(x));
       const before = rest.find(x => { const r = colEl.querySelector(`[data-id="${x}"]`).getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
       moveCards(m, col, before)(0);
       endDrag();
@@ -279,6 +288,19 @@ function renderHand(s) {
     hand.append(colEl);
   });
   hand.append(gap(handLayout.cols.length));
+
+  // the tray of selected cards (click one to put it back in its column)
+  const picked = [...selected].filter(id => cardById.has(id)).sort((a, b) => order.get(a) - order.get(b));
+  $("picked").classList.toggle("hidden", !mine || !picked.length);
+  $("pickedN").textContent = picked.length;
+  $("pickedCards").replaceChildren(...picked.map(id => {
+    const card = cardById.get(id);
+    const el = cardEl(card.label, card.wild);
+    el.dataset.id = id;
+    el.title = "点击放回手牌";
+    el.onclick = () => { selected.delete(id); render(); };
+    return el;
+  }));
 }
 
 function cardEl(label, wild) {
