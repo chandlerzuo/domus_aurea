@@ -1,0 +1,29 @@
+{
+  "deviceOrientation": "portrait",
+  "showStatusBar": false,
+  "networkTimeout": {
+    "request": 10000
+  },
+  "subpackages": [
+    {
+      "name": "sanguo",
+      "root": "themes/sanguo/"
+    },
+    {
+      "name": "shuihu",
+      "root": "themes/shuihu/"
+    },
+    {
+      "name": "fengshen",
+      "root": "themes/fengshen/"
+    },
+    {
+      "name": "xiyou",
+      "root": "themes/xiyou/"
+    },
+    {
+      "name": "chuhan",
+      "root": "themes/chuhan/"
+    }
+  ]
+}

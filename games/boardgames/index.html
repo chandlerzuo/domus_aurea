@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>英雄擲天下</title>
+<style>
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font-family: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif; background: #3a2618; color: #222; }
+  button { font: inherit; cursor: pointer; border: 1px solid #6b4f2a; background: #fff3d1; border-radius: 6px; padding: 6px 12px; }
+  button:hover:not(:disabled) { background: #ffe39a; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.pri { background: #c0392b; color: #fff; border-color: #7d2219; }
+  button.pri:hover:not(:disabled) { background: #a93226; }
+
+  /* 設定畫面 */
+  #setup, #lobby, #tables { max-width: 760px; margin: 30px auto; background: #fbf3d5; border-radius: 12px; padding: 24px 32px; box-shadow: 0 8px 30px #0008; }
+  #lobby h1, #tables h1 { margin: 0 0 4px; font-size: 32px; color: #8b1e1e; letter-spacing: 4px; }
+  #tables .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+  /* 桌位列表 */
+  #tableCards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 14px 0; }
+  .tcard { border: 2px solid #c9a96e; border-radius: 10px; background: #fff8e1; padding: 12px 14px; }
+  .tcard h3 { margin: 0 0 4px; font-size: 20px; }
+  .tcard .st { font-size: 14px; color: #6b4f2a; margin-bottom: 8px; }
+  .tseats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; min-height: 28px; }
+  .tseat { padding: 2px 9px; border-radius: 12px; font-size: 14px; border: 1px solid #c9a96e; background: #fff; }
+  .tseat.human { background: #dff0d8; } .tseat.ai { background: #e8eaf6; } .tseat.open { color: #999; border-style: dashed; }
+  /* 主題：古書封面（桌主點選，其他人只看得到選了哪一本） */
+  #themePick { display: flex; gap: 14px; flex-wrap: wrap; padding: 8px 4px 10px; }
+  .book { all: unset; box-sizing: border-box; display: block; position: relative; cursor: pointer; width: 76px; height: 106px; border-radius: 4px;
+          background: var(--bk); box-shadow: 0 3px 7px #0006; }
+  .book .slip { position: absolute; left: 12px; top: 9px; width: 28px; height: 86px; background: #f6efd9; border: 1px solid #b9a77d; outline: 1px solid #c0392b; outline-offset: -3px;
+                display: flex; align-items: center; justify-content: center; box-sizing: border-box; font-weight: 700; font-size: 15px; color: #1b1b1b; }
+  .book .slip i { font-style: normal; writing-mode: vertical-rl; text-orientation: upright; white-space: nowrap; line-height: 1.15; }
+  .book::after { content: ''; position: absolute; right: 7px; top: 8px; bottom: 8px; width: 2px; background: repeating-linear-gradient(#e8dcc0 0 9px, transparent 9px 22px); }
+  .book.on { outline: 3px solid #b03a2e; outline-offset: 4px; }
+  .book:disabled { cursor: default; opacity: .5; } .book.on:disabled { opacity: 1; }
+  .book:not(:disabled):hover { transform: translateY(-3px); }
+  #themeNote { font-size: 14px; color: #6b4f2a; }
+  @media (max-width: 640px) { #tableCards { grid-template-columns: 1fr; } }
+  #lobby .row, #lobby fieldset { margin: 8px 0; }
+  #lobby fieldset { border: 1px solid #c9a96e; border-radius: 8px; }
+  #lobby .row { display: flex; gap: 10px; align-items: center; }
+  #setup h1 { margin: 0 0 4px; font-size: 40px; color: #8b1e1e; letter-spacing: 6px; }
+  #setup .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+  #setup input, #setup select { font: inherit; padding: 4px 6px; }
+  #setup fieldset { border: 1px solid #c9a96e; border-radius: 8px; margin: 14px 0; }
+  .swatch { width: 18px; height: 18px; border-radius: 50%; display: inline-block; border: 2px solid #fff; box-shadow: 0 0 2px #000; }
+
+  /* 棋盤：棋盤圖，每一格上疊一層透明框 */
+  #game { display: flex; gap: 10px; padding: 10px; align-items: flex-start; }
+  body:has(#game:not([hidden])) { overflow: hidden; }
+  #board { position: relative; flex: none; width: min(calc((100vh - 20px) * 2630 / 1900), calc(100vw - 410px));
+           aspect-ratio: 2630 / 1900; container-type: inline-size; border-radius: 6px; overflow: hidden; box-shadow: 0 6px 24px #000a; }
+  #board > img { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; -webkit-user-drag: none; }
+  .ov { position: absolute; border-radius: 0.43cqw; cursor: pointer; }
+  .ov:hover { background: #ffffff30; }
+  .ov .lvl { position: absolute; right: -0.4cqw; bottom: -0.4cqw; width: 3.6cqw; pointer-events: none; filter: drop-shadow(0 0.1cqw 0.15cqw #0008); }
+  .ov .lvl svg { width: 100%; display: block; }
+  .ov .stampwrap { position: absolute; right: -0.5cqw; top: -0.5cqw; z-index: 1; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .stamp { width: 2.3cqw; height: 2.3cqw; border: 0.26cqw solid var(--oc); outline: 0.08cqw solid var(--oc); outline-offset: -0.5cqw; border-radius: 0.35cqw;
+           color: var(--oc); background: #fffdf3e6; font: 900 1.65cqw/1 'STKaiti','KaiTi','BiauKai','DFKai-SB','Kaiti TC',serif; display: flex; align-items: center; justify-content: center;
+           transform: rotate(-8deg); box-shadow: 0 0.1cqw 0.3cqw #0007; }
+  .stampinfo { margin-top: 0.15cqw; background: var(--oc); color: #fff; font-size: 0.8cqw; font-weight: 700; padding: 0 0.3cqw; border-radius: 0.25cqw; white-space: nowrap; }
+  .ov .oldflag { position: absolute; top: -0.14cqw; right: -0.14cqw; background: var(--oc); color: #fff; font-size: 0.97cqw; font-weight: 700;
+              padding: 0.04cqw 0.32cqw; border-radius: 0.36cqw; white-space: nowrap; box-shadow: 0 0 0.22cqw #000; }
+  .ov .toks { position: absolute; left: 3%; bottom: 3%; display: flex; flex-wrap: wrap; gap: 0.18cqw; }
+  .ov.here { outline: 0.36cqw dashed #000; outline-offset: 0.14cqw; z-index: 2; }
+  .tok { width: 3.6cqw; height: 4.2cqw; filter: drop-shadow(0 0.1cqw 0.15cqw #000a); }
+  .tok svg { width: 100%; height: 100%; display: block; }
+  .deck { position: absolute; border-radius: 0.72cqw; pointer-events: none; }
+  .deck.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { 0% { box-shadow: 0 0 0 0.72cqw #fff, 0 0 2.89cqw #ff0; } 100% { box-shadow: 0 0 0 0 #fff0; } }
+
+  #center { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.65cqw;
+            color: #fff; text-shadow: 0 0 0.29cqw #000; text-align: center; }
+  #turnInfo { font-size: 1.8cqw; font-weight: 700; }
+  #dice { font-size: 4.69cqw; line-height: 1; min-height: 4.69cqw; }
+  #actions { display: flex; gap: 0.58cqw; flex-wrap: wrap; justify-content: center; }
+  #actions button { font-size: 1.37cqw; padding: 0.36cqw 0.79cqw; text-shadow: none; }
+  #pileN { font-size: 1.08cqw; opacity: .9; }
+
+  aside { flex: 1; min-width: 320px; max-width: 460px; display: flex; flex-direction: column; gap: 8px; height: calc(100vh - 20px); }
+  #msg { background: #fbf3d5; border-radius: 6px; padding: 8px 10px; min-height: 3.2em; font-size: 15px; }
+  #players { display: flex; flex-direction: column; gap: 6px; }
+  .pl { background: #fbf3d5; border-left: 8px solid; border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+  .pl.cur { box-shadow: 0 0 0 3px #ffd166; }
+  .pl.dead { opacity: .45; }
+  .pl .hd { display: flex; justify-content: space-between; font-size: 15px; font-weight: 700; }
+  .pl .gens { color: #444; margin-top: 2px; }
+  .pl .hand { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+  .pl .hand .cimg { width: 46px; cursor: zoom-in; }
+  .mini .cimg, .cimg.mini { width: 34px !important; display: inline-block !important; vertical-align: middle; box-shadow: 0 1px 2px #0005; }
+  .cw { display: inline-block; }
+  .cmdbadge { font-size: 11px; color: #8b1e1e; font-weight: 700; }
+  /* 動態消息：電腦行動逐條顯示在棋盤中央（牌堆位置，不擋格子） */
+  #feed { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 46%; z-index: 5; cursor: pointer;
+          background: rgba(251,243,220,.97); border: 3px solid #d9a514; border-radius: 1cqw; padding: .9cqw 1.3cqw;
+          box-shadow: 0 6px 20px #0007; font-size: clamp(15px, 1.8cqw, 24px); line-height: 1.5; }
+  #feed .feed-old { opacity: .6; font-size: .8em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #feed .feed-new { font-size: 1.05em; margin-top: .2em; }
+  #feed .feed-foot { display: flex; align-items: center; gap: 10px; margin-top: .45em; }
+  #feed .feed-bar { flex: 1; height: 6px; border-radius: 3px; background: rgba(0,0,0,.12); overflow: hidden; }
+  #feed .feed-bar i { display: block; height: 100%; }
+  #feed .feed-skip { font-size: .7em; color: #6b4f2a; }
+  #tip { position: fixed; z-index: 100; pointer-events: none; background: #fffdf0; border: 2px solid #6b4f2a; border-radius: 8px; padding: 8px 10px; max-width: 260px; font-size: 13px; line-height: 1.5; box-shadow: 0 4px 14px #0006; }
+  .tipstats { display: flex; gap: 12px; margin: 3px 0; font-size: 14px; }
+  .tiphelp { margin-top: 4px; color: #7a2a12; }
+  .tag { font-size: 11px; background: #6b4f2a; color: #fff; border-radius: 4px; padding: 0 4px; margin-left: 4px; font-weight: 400; }
+  #log { flex: 1; overflow-y: auto; background: #1f150e; color: #f4e7b4; border-radius: 6px; padding: 8px; font-size: 12.5px; line-height: 1.5; }
+  #log div { border-bottom: 1px solid #3a2a1c; padding: 2px 0; }
+
+  /* 對話框 */
+  #modal { position: fixed; inset: 0; background: #0009; display: flex; align-items: center; justify-content: center; z-index: 50; }
+  #modal[hidden] { display: none; }
+  #modal .box { background: #fbf3d5; border-radius: 12px; padding: 18px 22px; min-width: 380px; max-width: 760px; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px #000a; }
+  #modal h3 { margin: 0 0 10px; color: #8b1e1e; }
+  #modal .btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 14px; }
+  #modal label.opt { display: block; padding: 3px 6px; border-radius: 4px; }
+  #modal label.opt:hover { background: #ffe39a; }
+  #modal table { border-collapse: collapse; }
+  #modal td { padding: 2px 8px; }
+  .cards { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .copt { display: flex; flex-direction: column; align-items: center; padding: 4px; border: 3px solid transparent; border-radius: 8px; cursor: pointer; font-size: 12px; width: 108px; text-align: center; }
+  .copt:hover { background: #ffe39a; }
+  .copt:has(input:checked) { border-color: #c0392b; background: #ffe39a; }
+  .copt input { display: none; }
+  .cimg { width: 96px; height: auto; display: block; border-radius: 6px; box-shadow: 0 1px 4px #0006; }
+  .cimg.big { width: 220px; margin: auto; }
+  .none { width: 96px; height: 134px; border: 2px dashed #b39b6a; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #8a7448; }
+  .err { color: #c0392b; font-weight: 700; }
+  .vs { display: flex; gap: 20px; justify-content: center; text-align: center; font-size: 16px; }
+  .vs > div { background: #fff; border-radius: 8px; padding: 8px 14px; min-width: 170px; }
+  .slip { background: #b9b6ae; border-radius: 8px; padding: 12px 16px; font-size: 17px; line-height: 1.6; box-shadow: inset 0 0 0 2px #8d8a82; }
+  .slip .hd { font-weight: 700; font-size: 20px; border: 2px solid #333; border-radius: 30px; display: inline-block; padding: 0 16px; margin-bottom: 6px; }
+  .slip small { display: block; color: #333; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1 class="themeTitle">三國風雲</h1>
+  <div class="themeSub">三國主題之領地與攻城桌上遊戲</div>
+  <fieldset>
+    <legend>參加者</legend>
+    <div class="row">參加人數
+      <select id="nPlayers"><option value="2">2 人</option><option value="3">3 人</option><option value="4" selected>4 人</option></select>
+    </div>
+    <div id="playerRows"></div>
+  </fieldset>
+  <fieldset>
+    <legend>設定</legend>
+    <div class="row">主題 <select id="optTheme"></select></div>
+    <div class="row">電腦速度 <select id="optSpeed"><option value="900">慢（每步 5 秒）</option><option value="450" selected>中（每步 3 秒）</option><option value="120">快（每步 2 秒）</option></select></div>
+  </fieldset>
+  <div class="row" style="justify-content:space-between">
+    <button id="rulesBtn0">遊戲說明</button>
+    <button id="startBtn" class="pri" style="font-size:20px;padding:10px 28px">開始遊戲</button>
+  </div>
+  <div id="setupErr" class="err"></div>
+</div>
+
+<div id="tables" hidden>
+  <h1>英雄擲天下　連線大廳</h1>
+  <div>共 4 桌。選一桌入座，可以等朋友加入，也可以用電腦補滿空位直接開局；牌局中隨時可以離座，由電腦接手；真人全部離座後牌局結束，桌子重新開放。</div>
+  <div id="tableCards"></div>
+  <div class="row"><button id="rulesBtn2">遊戲說明</button><span class="netStatus err"></span></div>
+</div>
+
+<div id="lobby" hidden>
+  <h1><span class="themeTitle">三國風雲</span>　第 <span id="lobbyNo">1</span> 桌</h1>
+  <div>選一個空位和主帥入座。第一位入座的人是房主：可以等朋友加入，也可以把空位設為電腦後開始遊戲。</div>
+  <fieldset><legend>主題</legend><div id="themePick"></div><div id="themeNote"></div></fieldset>
+  <fieldset><legend>座位</legend><div id="seatRows"></div><div id="lobbyWait" class="err" style="color:#6b4f2a"></div></fieldset>
+  <fieldset id="lobbyHost" hidden><legend>房主設定</legend>
+    <div class="row">電腦速度 <select id="onSpeed"><option value="900">慢（每步 5 秒）</option><option value="450" selected>中（每步 3 秒）</option><option value="120">快（每步 2 秒）</option></select></div>
+    <div class="row" style="justify-content:flex-end"><button id="lobbyFill">空位全部設為電腦</button><button id="lobbyStart" class="pri" style="font-size:20px;padding:10px 28px">開始遊戲</button></div>
+  </fieldset>
+  <div class="row"><button id="rulesBtn1">遊戲說明</button><button id="lobbyBack">返回桌位列表</button><span class="netStatus err"></span></div>
+</div>
+
+<div id="game" hidden>
+  <div id="board"><img src="board-sanguo.svg" alt="三國風雲棋盤"><div id="feed" hidden></div></div>
+  <aside>
+    <div style="display:flex;gap:8px"><button id="rulesBtn">遊戲說明</button><button id="standBtn" hidden>離座</button></div>
+    <div id="msg"></div>
+    <div id="players"></div>
+    <div id="log"></div>
+  </aside>
+</div>
+
+<div id="tip" hidden></div>
+<div id="modal" hidden><div class="box"><h3></h3><div class="body"></div><div class="btns"></div></div></div>
+
+<script src="cards.js"></script>
+<script src="theme-shuihu-art.js"></script>
+<script src="theme-fengshen-art.js"></script>
+<script src="theme-xiyou-art.js"></script>
+<script src="theme-chuhan-art.js"></script>
+<script src="themes.js"></script>
+<script src="engine.js"></script>
+<script src="texts.js"></script>
+<script src="client.js"></script>
+</body>
+</html>

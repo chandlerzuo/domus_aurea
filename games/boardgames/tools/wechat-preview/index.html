@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>小遊戲預覽</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}canvas{display:block}</style>
+</head>
+<body>
+<!-- 瀏覽器預覽：以 wx-shim.js 模擬小遊戲 API，執行 bundle.js（由 tools/build_wechat.js 產生）
+     ?notch=1 模擬瀏海手機的安全區域 -->
+<script>if (location.search.includes("test")) window.__wxTest = {};</script>
+<script src="wx-shim.js"></script>
+<script src="bundle.js"></script>
+<script>window.__startGame();</script>
+</body>
+</html>

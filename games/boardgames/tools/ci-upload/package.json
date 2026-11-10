@@ -1,0 +1,9 @@
+{
+  "name": "board-games-wechat-ci-upload",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Upload the board_games WeChat mini game with miniprogram-ci, bypassing the DevTools COS upload flow.",
+  "dependencies": {
+    "miniprogram-ci": "^2.0.0"
+  }
+}
