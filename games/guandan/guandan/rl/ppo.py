@@ -21,7 +21,7 @@ import os
 import time
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-from dataclasses import asdict, dataclass
+from dataclasses import field, asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -61,6 +61,7 @@ class PPOConfig:
     p_tribute: float = 0.75
     snapshot_every: int = 10       # PPO updates between snapshots
     max_snapshots: int = 20
+    league: list = field(default_factory=list)   # fixed past checkpoints that stay in the opponent pool for the whole run
     deals_per_task: int = 8        # per task without the Rust core
     fast: bool = True              # batched actors on the Rust core when it is built
     version: int = 1               # feature version for networks created from scratch (see features.py)
@@ -349,7 +350,8 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
         opt = torch.optim.Adam([*actor.parameters(), *critic.parameters()], lr=lr)
         version = 0
         save_policy(actor, critic, latest)
-        snapshots: list[str] = []
+        fixed = [str(x) for x in cfg.league]       # never evicted
+        snapshots: list[str] = list(fixed)
         need = cfg.bc_chunk if stage == "bc" else cfg.steps_per_update
         parts, buffered, submitted, done, updates = [], 0, 0, 0, 0
         scores = {k: deque(maxlen=2000) for k in ("self", "heuristic", "dmc", "snapshot", "bc")}
@@ -416,8 +418,8 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
                         p = out / "snapshots" / f"u{updates:05d}.pt"
                         save_policy(actor, critic, p)
                         snapshots.append(str(p))
-                        if len(snapshots) > cfg.max_snapshots:
-                            snapshots.pop(0)
+                        if len(snapshots) - len(fixed) > cfg.max_snapshots:
+                            snapshots.pop(len(fixed))
                         save_policy(actor, critic, out / "model.pt", updates=updates, deals=done)
                 if time.time() - last > 30 or not inflight:
                     last = time.time()

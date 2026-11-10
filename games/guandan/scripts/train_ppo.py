@@ -29,8 +29,12 @@ if __name__ == "__main__":
     ap.add_argument("--epochs", type=int, default=2)
     ap.add_argument("--queue", type=int, default=1, help="tasks queued per actor; more keeps actors busy but trains on staler data")
     ap.add_argument("--tables", type=int, default=32, help="deals each actor plays side by side (Rust core)")
+    ap.add_argument("--league", nargs="*", default=[], help="checkpoints that stay in the opponent pool all run (any feature version)")
+    ap.add_argument("--p-heuristic", type=float, default=PPOConfig.p_heuristic)
+    ap.add_argument("--p-dmc", type=float, default=PPOConfig.p_dmc)
+    ap.add_argument("--p-snapshot", type=float, default=PPOConfig.p_snapshot, help="share of deals against league + snapshots")
     a = ap.parse_args()
-    cfg = PPOConfig(workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
+    cfg = PPOConfig(league=a.league, p_heuristic=a.p_heuristic, p_dmc=a.p_dmc, p_snapshot=a.p_snapshot, workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
                     steps_per_update=a.steps_per_update, tables_per_worker=a.tables, epochs=a.epochs,
                     queue_per_worker=a.queue)
     train(cfg, a.bc_deals, a.ppo_deals, a.out, resume=a.resume, init=a.init)

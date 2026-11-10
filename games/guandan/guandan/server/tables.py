@@ -42,6 +42,7 @@ MODELS = {"dmc": RUNS / "dmc" / "model.pt", "ppo": RUNS / "ppo" / "model.pt"}
 SEARCH_WORLDS = int(os.environ.get("GUANDAN_SEARCH_WORLDS", "32"))
 SEARCH_TOPK = int(os.environ.get("GUANDAN_SEARCH_TOPK", "4"))
 SEARCH_MARGIN = float(os.environ.get("GUANDAN_SEARCH_MARGIN", "0.0"))
+SEARCH_BELIEF = float(os.environ.get("GUANDAN_SEARCH_BELIEF", "1.0"))   # 0 = uniform hidden hands, 1 = weighted by the belief head
 IDLE_SECONDS = 90
 TURN_SECONDS = 5 * 60
 NEXT_DEAL_SECONDS = 45   # a finished deal moves on by itself after this long
@@ -88,7 +89,8 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
         return PolicyAgent(_net("ppo"), seed=seed)
     if kind == "ppo+":
         from ..rl.search import SearchAgent
-        return SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN)
+        return SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN,
+                           belief=SEARCH_BELIEF)
     if kind not in BASE_AGENTS:
         raise ValueError(f"unknown agent {kind!r}")
     return BASE_AGENTS[kind](seed=seed)

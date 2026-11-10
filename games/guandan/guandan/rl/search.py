@@ -17,7 +17,7 @@ import numpy as np
 import torch
 
 from ..agents import Agent
-from ..cards import N_CARDS
+from ..cards import N_CARDS, ctype
 from ..combos import Kind
 from . import fast
 from .features import encode_actions, encode_state
@@ -30,20 +30,51 @@ def _tuple(move) -> tuple:
     return int(move.combo.kind), move.combo.value, move.combo.size, [int(c) for c in move.cards]
 
 
-def sample_world(obs: dict, rng: np.random.Generator, version: int):
-    """One possible state of the whole table consistent with what this player can see."""
+def belief_probs(actor, obs: dict) -> np.ndarray:
+    """(3, N_TYPES): the belief head's chance that the next / partner / previous player holds at least one
+    copy of each card type."""
+    s = torch.from_numpy(encode_state(obs, actor.version)).float()[None]
+    with torch.no_grad():
+        pr = torch.sigmoid(actor.belief(actor.state(s)))[0].numpy().reshape(3, -1)
+    return pr[:, 0::2]
+
+
+def sample_world(obs: dict, rng: np.random.Generator, version: int, bel: np.ndarray | None = None, power: float = 1.0):
+    """One possible state of the whole table consistent with what this player can see.
+
+    Without `bel` the unseen cards are dealt uniformly at random. With `bel` (see `belief_probs`) each card
+    goes to a player with probability proportional to belief ** power, times the places that player still has
+    free, so the hand sizes always come out right and `power` = 0 is the uniform deal."""
     seat = obs["seat"]
     hands: list = [None] * 4
     hands[seat] = [int(c) for c in obs["hand"]]
     seen = set(obs["hand"]) | {c for p in obs["played"] for c in p}
     unseen = [c for c in range(N_CARDS) if c not in seen]
     rng.shuffle(unseen)
-    at = 0
-    for s in range(4):
-        if s != seat:
+    others = [(seat + 1 + k) % 4 for k in range(3)]
+    if bel is None or power <= 0:
+        at = 0
+        for s in others:
             n = obs["counts"][s]
             hands[s] = [int(c) for c in unseen[at:at + n]]
             at += n
+    else:
+        w = (np.asarray(bel) + 1e-3) ** power          # (3, N_TYPES)
+        cap = [obs["counts"][s] for s in others]
+        out: list = [[], [], []]
+        u = rng.random(len(unseen))
+        for c, r in zip(unseen, u):
+            t = ctype(c)
+            ws = [w[k, t] * cap[k] for k in range(3)]
+            tot = ws[0] + ws[1] + ws[2]
+            if tot <= 0:
+                break
+            r *= tot
+            k = 0 if r < ws[0] else 1 if r < ws[0] + ws[1] else 2
+            out[k].append(int(c))
+            cap[k] -= 1
+        for k, s in enumerate(others):
+            hands[s] = out[k]
     table, history = obs["table"], obs["history"]
     passes = 0
     if table is not None:
@@ -78,7 +109,7 @@ def rollout(sims: list, actor, version: int, rng: np.random.Generator) -> None:
 
 
 def search_values(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, topk: int = 3,
-                  min_prob: float = 0.03):
+                  min_prob: float = 0.03, belief: float = 0.0):
     """Candidate moves, the policy's probabilities over all legal moves, and each candidate's
     estimated result (levels for the player's team). `None` when there is only one candidate."""
     v = actor.version
@@ -87,7 +118,8 @@ def search_values(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, 
     cand = [order[0]] + [j for j in order[1:topk] if p[j] >= min_prob]
     if len(cand) < 2:
         return None
-    ws = [sample_world(obs, rng, v) for _ in range(worlds)]
+    bel = belief_probs(actor, obs) if belief > 0 else None
+    ws = [sample_world(obs, rng, v, bel, belief) for _ in range(worlds)]
     sims, owner = [], []
     for w in ws:
         for k, j in enumerate(cand):
@@ -116,10 +148,10 @@ def improved_policy(p: np.ndarray, cand: list[int], val: np.ndarray, tau: float)
 
 
 def search_choice(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, topk: int = 3,
-                  min_prob: float = 0.03, margin: float = 0.0) -> tuple[int, dict]:
+                  min_prob: float = 0.03, margin: float = 0.0, belief: float = 0.0) -> tuple[int, dict]:
     """Index into obs["legal"] and a report: candidates with their policy probability and
     estimated result (levels for the player's team)."""
-    res = search_values(actor, obs, rng, worlds, topk, min_prob)
+    res = search_values(actor, obs, rng, worlds, topk, min_prob, belief)
     if res is None:
         _, _, p = policy_step(actor, encode_state(obs, actor.version), encode_actions(obs, actor.version),
                               rng, greedy=True)
@@ -136,15 +168,17 @@ class SearchAgent(Agent):
 
     name = "ppo+"
 
-    def __init__(self, actor, seed: int | None = None, worlds: int = 16, topk: int = 3, margin: float = 0.0):
+    def __init__(self, actor, seed: int | None = None, worlds: int = 16, topk: int = 3, margin: float = 0.0,
+                 belief: float = 0.0):
         super().__init__(seed)
-        self.actor, self.worlds, self.topk, self.margin = actor, worlds, topk, margin
+        self.actor, self.worlds, self.topk, self.margin, self.belief = actor, worlds, topk, margin, belief
 
     def act(self, obs: dict) -> int:
         legal = obs["legal"]
         if len(legal) == 1:
             return 0
-        i, report = search_choice(self.actor, obs, self.rng, self.worlds, self.topk, margin=self.margin)
+        i, report = search_choice(self.actor, obs, self.rng, self.worlds, self.topk, margin=self.margin,
+                                    belief=self.belief)
         if report["searched"]:
             self.info = {"search": {f"{legal[j].combo} x{len(legal[j].cards)}": {"p": pr, "value": v}
                                     for j, pr, v in report["cands"]}}

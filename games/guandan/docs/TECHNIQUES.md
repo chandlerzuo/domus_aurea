@@ -135,6 +135,13 @@ poker_ai's search).
   evaluator, AlphaZero-style. It is more expensive and fiddly in a
   four-player team game, but it is the principled version of PIMC.
 
+**Belief-weighted hidden hands (measured).** `search.sample_world(..., bel, power)` deals each unseen card to a
+player in proportion to the belief head's probability (`belief=1` in `scripts/evaluate_suite.py` specs), keeping hand sizes
+exact. Against the plain policy, 1,200 deals per cell (±0.067), two seeds: uniform 32 worlds / top 4 gave +0.23, +0.26;
+belief=1 gave +0.36, +0.30; belief=2 gave +0.32; 64 worlds / top 5 gave +0.39 (belief=1: +0.41) at twice the cost.
+The belief gain is consistent in sign but about 1.4 standard errors, so treat it as likely, not proven. The server
+uses belief=1 (`GUANDAN_SEARCH_BELIEF`).
+
 **Training the policy toward the search player's choices (tried, no gain).**
 `guandan/rl/distill.py`, `scripts/label_search.py` and `scripts/fit_distill.py` label decisions
 with the search (policy shifted toward the better-looking candidates) and fit the policy to the
