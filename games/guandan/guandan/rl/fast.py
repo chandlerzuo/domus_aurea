@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from ..agents import HeuristicAgent
+from ..cards import ACE
 from ..combos import move_from_tuple
 from ..game import Match, team
 from .policy import padded_log_probs
@@ -80,11 +81,13 @@ class _Traj:
 
 
 def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, opponents, p_tribute: float,
-               lam: float, reward_scale: float, width: int = 64, version: int = 1) -> dict:
+               lam: float, reward_scale: float, width: int = 64, version: int = 1, match_bonus: float = 0.0) -> dict:
     """`learner` = (actor, critic); `opponents` = callable(rng) -> ("self"|"heuristic"|"dmc"|"snapshot", net or None).
 
     mode "bc": the heuristic plays all four seats and its choices are recorded (imitation data).
     mode "ppo": the learner's sampled moves are recorded, with GAE advantages from the oracle critic.
+    `match_bonus` > 0 adds that many levels to the reward (and subtracts it for the other side) when the deal
+    ends the match, i.e. the team playing its own level at A wins by 2 or more levels.
     """
     from .dmc import random_match
 
@@ -114,16 +117,19 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
                 ctrl.append(kind)  # "dmc" or "snapshot": batched network controllers
         for t in m.pending_returns:
             m.give_return(t.receiver, HeuristicAgent(0).choose_return(d.hands[t.receiver], d.level))
+        ends = m.level_team is not None and m.team_levels[m.level_team] == ACE   # a win by this team with up >= 2 ends the match
         return {"rs": rs_from_deal(d), "ctrl": ctrl, "agents": agents, "me": me, "kind": kind,
+                "match_team": m.level_team if ends else None,
                 "net": net, "trajs": [_Traj() for _ in range(4)]}
 
     def finish(t: dict) -> None:
         win, up = t["rs"].result()
         scores_by["bc" if mode == "bc" else t["kind"]].append(up if win == t["me"] else -up)
+        worth = up + (match_bonus if (t["match_team"] == win and up >= 2) else 0.0)
         for s, tr in enumerate(t["trajs"]):
             if not tr.S:
                 continue
-            r = (up if win == team(s) else -up) / reward_scale
+            r = (worth if win == team(s) else -worth) / reward_scale
             if mode == "bc":
                 adv, ret = [0.0] * len(tr.S), [r] * len(tr.S)
             else:  # GAE over this player's decisions; reward only at the end (gamma = 1)

@@ -59,6 +59,7 @@ class PPOConfig:
     p_dmc: float = 0.15
     p_snapshot: float = 0.15
     p_tribute: float = 0.75
+    match_bonus: float = 0.0       # extra levels of reward for the deal that ends the match (0 = plain levels)
     snapshot_every: int = 10       # PPO updates between snapshots
     max_snapshots: int = 20
     league: list = field(default_factory=list)   # fixed past checkpoints that stay in the opponent pool for the whole run
@@ -208,7 +209,7 @@ def play_task_fast(seed: int, n_deals: int, mode: str, latest: tuple[str, int], 
         return "self", None
 
     return fast_rl.play_batch(rng, n_deals, mode, learner, opponents, cfg.p_tribute, cfg.lam, REWARD_SCALE,
-                              width=cfg.tables_per_worker, version=cfg.version)
+                              width=cfg.tables_per_worker, version=cfg.version, match_bonus=cfg.match_bonus)
 
 
 # ---- learner ----------------------------------------------------------------
