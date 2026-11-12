@@ -4,6 +4,7 @@
 mod combos;
 mod deal;
 mod features;
+mod solve;
 
 use numpy::{PyArray1, PyArray2, PyArrayMethods};
 use pyo3::exceptions::PyValueError;
@@ -152,6 +153,14 @@ impl RsDeal {
         let mut v = vec![0u8; features::ORACLE_DIM];
         features::encode_oracle(&self.d, seat, &mut v);
         PyArray1::from_vec_bound(py, v)
+    }
+
+    /// Exact value (levels for the mover's team) of each legal move under perfect play by everyone, given
+    /// these four hands; `None` if more than `budget` positions would have to be searched.
+    #[pyo3(signature = (budget=2_000_000))]
+    fn solve(&mut self, budget: u64) -> PyResult<Option<Vec<i32>>> {
+        self.need_turn()?;
+        Ok(solve::Solver::root_values(&self.d, budget))
     }
 
     fn copy(&self) -> RsDeal {

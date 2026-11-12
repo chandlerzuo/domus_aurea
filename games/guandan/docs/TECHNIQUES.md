@@ -142,6 +142,15 @@ belief=1 gave +0.36, +0.30; belief=2 gave +0.32; 64 worlds / top 5 gave +0.39 (b
 The belief gain is consistent in sign but about 1.4 standard errors, so treat it as likely, not proven. The server
 uses belief=1 (`GUANDAN_SEARCH_BELIEF`).
 
+**Endgames (measured, 900 positions each, against the plain policy).** Positions with at most 28 cards left in
+total (`scripts/evaluate_endgame.py`): ordinary search +0.14, search over more moves with 64-128 sampled hands +0.22 to
++0.24 (384 hands: no better), now the server default below 28 cards. At most 16 cards left: ordinary +0.06, the
+endgame search +0.12, **exact solving of sampled worlds** (`RsDeal.solve`, alpha-beta with a transposition table in
+`rust/src/solve.rs`, correct against brute-force minimax; about 20 ms a world at 16 cards, too slow above 20) +0.10 to
++0.12 (±0.055) -- no better than the policy rollouts, so it is off by default (`solve=` in evaluate_suite specs).
+Two likely reasons: the solver assumes every opponent plays perfectly while the real ones follow the policy, and
+solving a sampled world lets the mover use information they do not have (strategy fusion).
+
 **Training the policy toward the search player's choices (tried, no gain).**
 `guandan/rl/distill.py`, `scripts/label_search.py` and `scripts/fit_distill.py` label decisions
 with the search (policy shifted toward the better-looking candidates) and fit the policy to the

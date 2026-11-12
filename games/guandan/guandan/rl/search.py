@@ -137,6 +137,29 @@ def search_values(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, 
     return cand, p, tot / cnt
 
 
+def solve_choice(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, budget: int = 100_000,
+                 belief: float = 0.0):
+    """Endgame by exact solving: sample hidden hands, solve each sampled world exactly (every player choosing the
+    best move for their team), and pick the move with the best average value. The policy's probability breaks
+    ties. Returns the chosen index into obs["legal"] and the per-move mean values, or None when too few of the
+    sampled worlds could be solved within `budget` positions each."""
+    v = actor.version
+    bel = belief_probs(actor, obs) if belief > 0 else None
+    tot, done = None, 0
+    for _ in range(worlds):
+        vals = sample_world(obs, rng, v, bel, belief).solve(budget)
+        if vals is None:
+            continue
+        vals = np.asarray(vals, dtype=float)
+        tot = vals if tot is None else tot + vals
+        done += 1
+    if done * 2 < worlds:
+        return None
+    mean = tot / done
+    _, _, p = policy_step(actor, encode_state(obs, v), encode_actions(obs, v), rng, greedy=True)
+    return int(np.argmax(mean + 1e-3 * p)), mean
+
+
 def improved_policy(p: np.ndarray, cand: list[int], val: np.ndarray, tau: float) -> np.ndarray:
     """The policy shifted toward better-looking candidates: they share their original total
     probability in proportion to p * exp(value / tau); every other move keeps its probability."""
@@ -169,17 +192,27 @@ class SearchAgent(Agent):
     name = "ppo+"
 
     def __init__(self, actor, seed: int | None = None, worlds: int = 16, topk: int = 3, margin: float = 0.0,
-                 belief: float = 0.0, endgame_cards: int = 0, endgame_worlds: int = 128, endgame_topk: int = 99):
+                 belief: float = 0.0, endgame_cards: int = 0, endgame_worlds: int = 128, endgame_topk: int = 99,
+                 solve_cards: int = 0, solve_worlds: int = 16, solve_budget: int = 100_000):
         super().__init__(seed)
         self.actor, self.worlds, self.topk, self.margin, self.belief = actor, worlds, topk, margin, belief
         # With few cards left (all hands together), look at every legal move with many more sampled hands: the
         # hidden cards are few, so sampled worlds are close to the truth and the extra search is cheap.
         self.endgame_cards, self.endgame_worlds, self.endgame_topk = endgame_cards, endgame_worlds, endgame_topk
+        # With very few cards left, solve sampled worlds exactly instead of playing them out with the policy.
+        self.solve_cards, self.solve_worlds, self.solve_budget = solve_cards, solve_worlds, solve_budget
 
     def act(self, obs: dict) -> int:
         legal = obs["legal"]
         if len(legal) == 1:
             return 0
+        if sum(obs["counts"]) <= self.solve_cards:
+            res = solve_choice(self.actor, obs, self.rng, self.solve_worlds, self.solve_budget, self.belief)
+            if res is not None:
+                i, mean = res
+                self.info = {"solved": {f"{legal[j].combo} x{len(legal[j].cards)}": {"value": round(float(x), 2)}
+                                        for j, x in enumerate(mean)}}
+                return i
         if sum(obs["counts"]) <= self.endgame_cards:
             i, report = search_choice(self.actor, obs, self.rng, self.endgame_worlds, min(len(legal), self.endgame_topk), min_prob=0.0,
                                       margin=self.margin, belief=self.belief)

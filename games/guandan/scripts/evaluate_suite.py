@@ -6,7 +6,8 @@ An agent spec is  KIND[:PATH][,key=value ...]  with KIND one of
   heuristic, random, dmc, ppo (greedy policy), ppo~ (sampled), ppo+ / search (policy + search)
 e.g.  ppo+:runs/ppo/model.pt,worlds=64,topk=5,margin=0.1,belief=1.0
 Search keys: worlds, topk, margin, belief (0 = uniform hidden hands, 1 = weight by the belief head),
-  eg (use the endgame search once all hands together hold at most this many cards), egworlds, egtopk.
+  eg (use the endgame search once all hands together hold at most this many cards), egworlds, egtopk,
+  solve (exactly solve sampled worlds once all hands together hold at most this many cards), sworlds, sbudget.
 
 Every number is levels per deal for the first agent, with its standard error over 2 x pairs deals
 (each deal is played twice with the teams swapped). The same seeds are used for every opponent,
@@ -40,7 +41,9 @@ def factory(spec: str):
         actor = load_policy(path or DEFAULT_POLICY)
         return lambda seed: SearchAgent(actor, seed=seed, worlds=int(kw.get("worlds", 32)), topk=int(kw.get("topk", 4)),
                                         margin=float(kw.get("margin", 0.0)), belief=float(kw.get("belief", 0.0)),
-                                        endgame_cards=int(kw.get("eg", 0)), endgame_worlds=int(kw.get("egworlds", 128)), endgame_topk=int(kw.get("egtopk", 99)))
+                                        endgame_cards=int(kw.get("eg", 0)), endgame_worlds=int(kw.get("egworlds", 128)), endgame_topk=int(kw.get("egtopk", 99)),
+                                        solve_cards=int(kw.get("solve", 0)), solve_worlds=int(kw.get("sworlds", 16)),
+                                        solve_budget=int(kw.get("sbudget", 100000)))
     if kind in ("ppo", "ppo~", "bc"):
         from guandan.rl.policy import DEFAULT_POLICY, PolicyAgent, load_policy
         actor = load_policy(path or (DEFAULT_POLICY if kind != "bc" else DEFAULT_POLICY.with_name("bc.pt")))
