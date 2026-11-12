@@ -21,3 +21,6 @@ runs/ppo/*
 !runs/ppo/config.json
 dist/
 rust/target/
+
+# recorded games copied from a server
+*.db
