@@ -11,6 +11,7 @@ import numpy as np
 
 from ..cards import BJ, SJ, N_TYPES, ctype, is_wild, wild_type
 from ..combos import SEQ, Kind, Move
+from .plan import Planner, St
 
 CARD_DIM = 2 * N_TYPES
 HISTORY = 8
@@ -32,12 +33,19 @@ AGG = 27 + 6 * 4 + 4 + 2 + 14 * 3
 ACTION_DIM_V2 = ACTION_DIM + CARD_DIM + AGG
 
 
+# Version 3 appends the hand decomposition (rl/plan.py): on the state, the fewest sets the hand splits into (unary);
+# on each action, that number after the move (unary) and how the move changes it (<= -1, 0, +1, >= +2).
+PLAN_CAP = 14
+STATE_DIM_V3 = STATE_DIM_V2 + PLAN_CAP
+ACTION_DIM_V3 = ACTION_DIM_V2 + PLAN_CAP + 4
+
+
 def state_dim(version: int = 1) -> int:
-    return STATE_DIM_V2 if version >= 2 else STATE_DIM
+    return STATE_DIM_V3 if version >= 3 else STATE_DIM_V2 if version >= 2 else STATE_DIM
 
 
 def action_dim(version: int = 1) -> int:
-    return ACTION_DIM_V2 if version >= 2 else ACTION_DIM
+    return ACTION_DIM_V3 if version >= 3 else ACTION_DIM_V2 if version >= 2 else ACTION_DIM
 
 
 def card_vec(cards, out: np.ndarray | None = None) -> np.ndarray:
@@ -97,6 +105,9 @@ def encode_state(obs: dict, version: int = 1) -> np.ndarray:
             onehot((s - seat) % 4, 4)
         else:
             o += CARD_DIM + 4
+    if version >= 3:
+        x[STATE_DIM_V2:STATE_DIM_V2 + min(PLAN_CAP, min_sets_now(hand, obs["level"]))] = 1
+        o += PLAN_CAP
     assert o == state_dim(version)
     return x
 
@@ -136,7 +147,12 @@ def _remaining(m: Move, hand, level: int, out: np.ndarray) -> None:
     assert at == CARD_DIM + AGG
 
 
-def encode_action(m: Move, hand_size: int, level: int, version: int = 1, hand=None) -> np.ndarray:
+def min_sets_now(hand, level: int) -> int:
+    return Planner().min_sets(St.from_cards(hand, level))
+
+
+def encode_action(m: Move, hand_size: int, level: int, version: int = 1, hand=None, plan=None) -> np.ndarray:
+    """`plan` = (planner, state of the hand now, sets now) shared by all the moves of one decision (version 3)."""
     x = np.zeros(action_dim(version), np.uint8)
     card_vec(m.cards, x[:CARD_DIM])
     o = CARD_DIM
@@ -149,9 +165,18 @@ def encode_action(m: Move, hand_size: int, level: int, version: int = 1, hand=No
     x[o + min(15, m.combo.value)] = 1
     if version >= 2:
         _remaining(m, hand, level, x[ACTION_DIM:])
+    if version >= 3:
+        planner, st, now = plan
+        after = planner.min_sets(st.minus(m.cards, level))
+        x[ACTION_DIM_V2:ACTION_DIM_V2 + min(PLAN_CAP, after)] = 1
+        x[ACTION_DIM_V2 + PLAN_CAP + (0 if after - now <= -1 else 1 if after == now else 2 if after - now == 1 else 3)] = 1
     return x
 
 
 def encode_actions(obs: dict, version: int = 1) -> np.ndarray:
     hand, level = obs["hand"], obs["level"]
-    return np.stack([encode_action(m, len(hand), level, version, hand) for m in obs["legal"]])
+    plan = None
+    if version >= 3:
+        planner, st = Planner(), St.from_cards(hand, level)
+        plan = (planner, st, planner.min_sets(st))
+    return np.stack([encode_action(m, len(hand), level, version, hand, plan) for m in obs["legal"]])

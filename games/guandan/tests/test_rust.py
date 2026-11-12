@@ -134,3 +134,31 @@ def test_joker_bombs_and_wild_straight_flushes_match_python():
             t = None if table is None else (int(table.kind), table.value, table.size)
             py = [(int(m.combo.kind), m.combo.value, m.combo.size, tuple(m.cards)) for m in legal_moves_py(hand, level, table)]
             assert [(k, v, s, tuple(c)) for k, v, s, c in core.legal_moves_py(hand, level, t)] == py, (text, table)
+
+
+def test_feature_version_3_matches_python_and_extends_version_2():
+    from guandan.rl.features import ACTION_DIM_V2, ACTION_DIM_V3, STATE_DIM_V2, STATE_DIM_V3
+    from guandan.rl.plan import min_sets
+    assert (core.STATE_DIM_V3, core.ACTION_DIM_V3) == (STATE_DIM_V3, ACTION_DIM_V3)
+    rng = np.random.default_rng(5)
+    steps = 0
+    for k in range(25):
+        hands = deal_cards(rng)
+        level, leader = int(rng.integers(13)), int(rng.integers(4))
+        py = Deal(hands, level, leader)
+        rs = core.RsDeal(hands, level, leader)
+        while not py.done:
+            seat = py.to_act
+            obs = py.observation(seat)
+            s3, a3 = encode_state(obs, 3), encode_actions(obs, 3)
+            assert s3.shape == (STATE_DIM_V3,) and a3.shape[1] == ACTION_DIM_V3
+            assert (rs.encode_state(seat, 3) == s3).all() and (rs.encode_actions(3) == a3).all()
+            assert (s3[:STATE_DIM_V2] == encode_state(obs, 2)).all() and (a3[:, :ACTION_DIM_V2] == encode_actions(obs, 2)).all()
+            assert rs.min_sets(seat) == min_sets(obs["hand"], level) == int(s3[STATE_DIM_V2:].sum())
+            S, A, n = core.batch_encode([rs], 3)
+            assert (S[0] == s3).all() and (A == a3).all()
+            i = int(rng.integers(len(obs["legal"])))
+            py.play(obs["legal"][i])
+            rs.play_index(i)
+            steps += 1
+    assert steps > 800

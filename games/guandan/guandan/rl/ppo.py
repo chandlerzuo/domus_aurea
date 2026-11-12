@@ -59,6 +59,7 @@ class PPOConfig:
     p_dmc: float = 0.15
     p_snapshot: float = 0.15
     p_tribute: float = 0.75
+    p_runout: float = 0.0          # share of training deals that start from a constructed "saved runout" position
     p_endgame: float = 0.0         # share of training deals that start with only 12-40 cards left in total
     match_bonus: float = 0.0       # extra levels of reward for the deal that ends the match (0 = plain levels)
     snapshot_every: int = 10       # PPO updates between snapshots
@@ -211,7 +212,7 @@ def play_task_fast(seed: int, n_deals: int, mode: str, latest: tuple[str, int], 
 
     return fast_rl.play_batch(rng, n_deals, mode, learner, opponents, cfg.p_tribute, cfg.lam, REWARD_SCALE,
                               width=cfg.tables_per_worker, version=cfg.version, match_bonus=cfg.match_bonus,
-                              p_endgame=cfg.p_endgame)
+                              p_endgame=cfg.p_endgame, p_runout=cfg.p_runout)
 
 
 # ---- learner ----------------------------------------------------------------
@@ -357,7 +358,7 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
         snapshots: list[str] = list(fixed)
         need = cfg.bc_chunk if stage == "bc" else cfg.steps_per_update
         parts, buffered, submitted, done, updates = [], 0, 0, 0, 0
-        scores = {k: deque(maxlen=2000) for k in ("self", "heuristic", "dmc", "snapshot", "bc")}
+        scores = {k: deque(maxlen=2000) for k in ("self", "heuristic", "dmc", "snapshot", "bc", "runout")}
         t0 = last = time.time()
         last_stats: dict = {}
         learn_time = 0.0

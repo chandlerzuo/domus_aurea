@@ -82,7 +82,7 @@ class _Traj:
 
 def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, opponents, p_tribute: float,
                lam: float, reward_scale: float, width: int = 64, version: int = 1, match_bonus: float = 0.0,
-               p_endgame: float = 0.0) -> dict:
+               p_endgame: float = 0.0, p_runout: float = 0.0) -> dict:
     """`learner` = (actor, critic); `opponents` = callable(rng) -> ("self"|"heuristic"|"dmc"|"snapshot", net or None).
 
     mode "bc": the heuristic plays all four seats and its choices are recorded (imitation data).
@@ -92,6 +92,8 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
     `p_endgame` is the share of deals that start late: the heuristic plays the deal forward until a random
     12-40 cards are left in total, and the learner trains only on the rest. Late positions are rare in ordinary
     self-play, so this gives the endgame many more examples.
+    `p_runout` is the share of deals that start from a constructed "saved runout" position (see rl/scenarios.py): an
+    opponent holds only a bomb / full house / high single and is on lead, and the learner plays the other team.
     """
     from .dmc import random_match
 
@@ -107,7 +109,22 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
             if t is not None:
                 return t
 
+    def _runout_table():
+        from .scenarios import runout_position
+        d, h, scripted = runout_position(rng)
+        ctrl, agents = [], [None] * 4
+        for s in range(4):
+            if team(s) == team(h):
+                ctrl.append("heur")
+                agents[s] = scripted[s]
+            else:
+                ctrl.append("learn")
+        return {"rs": rs_from_deal(d), "ctrl": ctrl, "agents": agents, "me": 1 - team(h), "kind": "runout",
+                "match_team": None, "net": None, "trajs": [_Traj() for _ in range(4)]}
+
     def _new_table():
+        if mode == "ppo" and rng.random() < p_runout:
+            return _runout_table()
         m = random_match(rng, p_tribute)
         d = m.new_deal()
         me = int(rng.integers(2))
