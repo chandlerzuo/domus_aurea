@@ -30,3 +30,14 @@ def test_runout_player_leads_its_combos_in_a_row_when_unopposed():
                 o = d.observation(d.to_act)
                 d.play(o["legal"][0] if not o["leading"] else o["legal"][0])
         assert plays == n_combos or d.done
+
+
+def test_best_split_uses_every_card_once_with_the_fewest_sets():
+    from guandan.rl.plan import best_split, min_sets
+    rng = np.random.default_rng(0)
+    for _ in range(80):
+        level = int(rng.integers(13))
+        hand = [int(c) for c in rng.permutation(108)[:int(rng.integers(3, 28))]]
+        groups = best_split(hand, level)
+        assert sorted(c for g in groups for c in g) == sorted(hand)
+        assert len(groups) == min_sets(hand, level)

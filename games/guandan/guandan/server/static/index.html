@@ -120,6 +120,7 @@
             <button id="clearBtn" class="secondary">重选</button>
             <button id="sortBtn" class="secondary" title="进入整理模式：拖动手牌调整位置；完成后再选牌出牌">整理手牌</button>
             <button id="autoSortBtn" class="secondary hidden" title="按点数把牌重新叠放">自动排序</button>
+            <label class="meta" title="每次出牌后，自动把手牌分成最少的组（组数最少、牌型最强的分法）。关闭后仍可手动整理。"><input type="checkbox" id="autoOrg"> 出牌后自动整理</label>
             <span id="organizeHint" class="organize-hint hidden">整理中：拖动牌来调整位置，完成后点“完成整理”再选牌</span>
             <button id="nextBtn" class="hidden">下一局</button>
             <button id="leaveBtn" class="secondary">离开座位</button>
@@ -197,6 +198,8 @@ const SUIT_TEXT = { s: "♠", h: "♥", c: "♣", d: "♦" };
 const cardText = l => l === "sj" ? "小王" : l === "BJ" ? "大王" : SUIT_TEXT[l[1]] + rankName(l[0]);
 
 // ---- my hand: same-rank cards stacked in a column, columns side by side; drag cards to rearrange ----
+let autoOrganize = localStorage.getItem("autoOrganize") === "1";   // regroup the hand by hand decomposition after every play
+let autoHandKey = null;
 let organizing = false;                      // "organize cards" mode: cards can be dragged, but not selected
 let handLayout = { deal: null, cols: [] };   // cols: arrays of card ids, left to right
 let dragIds = null;                          // ids being dragged (null when not dragging)
@@ -244,6 +247,16 @@ function renderHand(s) {
   hand.classList.toggle("mine", s.as_player);
   hand.classList.toggle("organizing", s.as_player && organizing);
   reconcileHand(s.hand, s.deal_no);
+  if (autoOrganize && s.as_player && s.plan && s.plan.length) {
+    // the hand changed (a play, a new deal, tribute): regroup it into the fewest sets. Otherwise leave the layout alone,
+    // so a manual rearrangement stays until the next play.
+    const key = s.hand.map(c => c.id).join(",");
+    if (key !== autoHandKey) {
+      autoHandKey = key;
+      const have = new Set(s.hand.map(c => c.id));
+      handLayout.cols = s.plan.map(g => g.filter(id => have.has(id))).filter(g => g.length);
+    }
+  }
   const cardById = new Map(s.hand.map(c => [c.id, c]));
   const order = new Map(s.hand.map((c, i) => [c.id, i]));   // the server sends the hand sorted ascending
   handLayout.cols.forEach(col => col.sort((a, b) => order.get(a) - order.get(b)));   // a column is always in ascending order
@@ -608,6 +621,13 @@ $("playBtn").onclick = () => {
   selected.clear();
 };
 $("passBtn").onclick = () => { selected.clear(); act("play", { cards: [] }); };
+$("autoOrg").checked = autoOrganize;
+$("autoOrg").onchange = () => {
+  autoOrganize = $("autoOrg").checked;
+  localStorage.setItem("autoOrganize", autoOrganize ? "1" : "0");
+  autoHandKey = null;                     // regroup right away when turned on
+  if (state) render();
+};
 $("sortBtn").onclick = () => { organizing = !organizing; render(); };
 $("autoSortBtn").onclick = () => { handLayout = { deal: null, cols: [] }; render(); };
 $("clearBtn").onclick = () => { selected.clear(); render(); };

@@ -26,6 +26,7 @@ import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -100,6 +101,13 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
     if kind not in BASE_AGENTS:
         raise ValueError(f"unknown agent {kind!r}")
     return BASE_AGENTS[kind](seed=seed)
+
+
+@lru_cache(maxsize=512)
+def hand_split(hand: tuple, level: int) -> list[list[int]]:
+    """The player's hand as groups of card ids (fewest sets) -- used by the page's auto-organize option."""
+    from ..rl.plan import best_split
+    return best_split(hand, level)
 
 
 def card_json(c: int, level: int) -> dict:
@@ -280,6 +288,7 @@ class Game:
             "seats": seats, "table_play": zh.move_zh(d.table) if d.table else None, "table_seat": d.table_seat,
             "leading": d.leading, "log": self.log[-25:], "resisted": m.resisted, "moves_in_deal": len(d.history),
             "suggestions_on": as_player and self.humans.get(seat, False),
+            "plan": hand_split(tuple(d.hands[seat]), d.level) if as_player and d.hands[seat] else [],
             "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": zh.card_zh(t.card),
                           "returned": zh.card_zh(t.returned) if t.returned is not None else None}
                          for t in m.tributes],
