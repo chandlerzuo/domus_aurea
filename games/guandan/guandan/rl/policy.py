@@ -85,7 +85,7 @@ def widen_policy(actor: Actor, critic: Critic, version: int) -> tuple[Actor, Cri
     for k, v in old.items():
         if v.shape == new[k].shape:
             new[k] = v.clone()
-    for k, dim in (("state.0.weight", STATE_DIM), ("action.0.weight", ACTION_DIM)):
+    for k, dim in (("state.0.weight", state_dim(actor.version)), ("action.0.weight", action_dim(actor.version))):
         new[k] = torch.zeros_like(new[k])
         new[k][:, :dim] = old[k]
     na.load_state_dict(new)
@@ -94,9 +94,10 @@ def widen_policy(actor: Actor, critic: Critic, version: int) -> tuple[Actor, Cri
         if v.shape == new[k].shape:
             new[k] = v.clone()
     w = torch.zeros_like(new["net.0.weight"])  # inputs are [state | oracle]
-    extra = state_dim(version) - STATE_DIM
-    w[:, :STATE_DIM] = old["net.0.weight"][:, :STATE_DIM]
-    w[:, STATE_DIM + extra:] = old["net.0.weight"][:, STATE_DIM:]
+    old_s = state_dim(actor.version)
+    extra = state_dim(version) - old_s
+    w[:, :old_s] = old["net.0.weight"][:, :old_s]
+    w[:, old_s + extra:] = old["net.0.weight"][:, old_s:]
     new["net.0.weight"] = w
     nc.load_state_dict(new)
     return na.eval() if not actor.training else na, nc.eval() if not critic.training else nc

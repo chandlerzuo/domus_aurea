@@ -209,4 +209,38 @@ class RunoutAgent(HoarderAgent):
     name = "runout"
 
 
-AGENTS = {"random": RandomAgent, "heuristic": HeuristicAgent, "hoarder": HoarderAgent}
+class PlanAgent(HeuristicAgent):
+    """Plays by hand decomposition: split the hand into as few sets as possible and play the plan.
+
+    Leading: the lowest set whose removal shortens the plan (a move that completes a set of the best split); if none
+    does, the move that leaves the fewest sets. Following: never overtake the partner; beat an opponent with the
+    cheapest move that completes a set; otherwise fall back to the heuristic's rules.
+    """
+
+    name = "plan"
+
+    def act(self, obs: dict) -> int:
+        from .rl.plan import Planner, St
+        legal: list[Move] = obs["legal"]
+        hand, level, seat = obs["hand"], obs["level"], obs["seat"]
+        for i, m in enumerate(legal):  # going out beats everything
+            if len(m.cards) == len(hand):
+                return i
+        planner, st = Planner(), St.from_cards(hand, level)
+        now = planner.min_sets(st)
+        scored = [(i, planner.min_sets(st.minus(m.cards, level)), m) for i, m in enumerate(legal) if not m.is_pass]
+        free = [(i, a, m) for i, a, m in scored if a < now and not m.combo.is_bomb]
+        if obs["leading"]:
+            pool = free or [(i, a, m) for i, a, m in scored if not m.combo.is_bomb] or scored
+            return min(pool, key=lambda t: (t[1], _strength(t[2], level), -len(t[2].cards)))[0]
+        if obs["table_seat"] == partner(seat):
+            return 0
+        if free:
+            counts = obs["counts"]
+            opp_min = min((counts[s] for s in ((seat + 1) % 4, (seat + 3) % 4) if s not in obs["finished"]), default=27)
+            return min(free, key=lambda t: (_strength(t[2], level), t[1]))[0]
+        return self._follow(obs, legal, hand, level, min((obs["counts"][s] for s in ((seat + 1) % 4, (seat + 3) % 4)
+                                                          if s not in obs["finished"]), default=27))
+
+
+AGENTS = {"random": RandomAgent, "heuristic": HeuristicAgent, "hoarder": HoarderAgent, "plan": PlanAgent}

@@ -4,6 +4,7 @@
 mod combos;
 mod deal;
 mod features;
+mod plan;
 mod solve;
 
 use numpy::{PyArray1, PyArray2, PyArrayMethods};
@@ -140,10 +141,11 @@ impl RsDeal {
         let (level, version) = (self.d.level, version.unwrap_or(self.version));
         let hand = self.d.hands[self.d.to_act as usize].clone();
         let ad = features::action_dim(version);
+        let mut ctx = (version >= 3).then(|| features::PlanCtx::new(&hand, level));
         let moves = self.d.legal();
         let mut flat = vec![0u8; moves.len() * ad];
         for (m, row) in moves.iter().zip(flat.chunks_mut(ad)) {
-            features::encode_action(m, &hand, level, version, row);
+            features::encode_action(m, &hand, level, version, row, ctx.as_mut());
         }
         let n = moves.len();
         PyArray1::from_vec_bound(py, flat).reshape([n, ad])
@@ -161,6 +163,12 @@ impl RsDeal {
     fn solve(&mut self, budget: u64) -> PyResult<Option<Vec<i32>>> {
         self.need_turn()?;
         Ok(solve::Solver::root_values(&self.d, budget))
+    }
+
+    /// Fewest sets the hand of `seat` splits into (leads needed to go out unopposed).
+    fn min_sets(&self, seat: usize) -> u8 {
+        let st = plan::St::from_cards(&self.d.hands[seat], self.d.level);
+        plan::Planner::new().min_sets(&st)
     }
 
     fn copy(&self) -> RsDeal {
@@ -231,11 +239,12 @@ fn batch_encode<'py>(
         features::encode_state(&dl.d, seat, version, row);
         let hand = dl.d.hands[seat].clone();
         let level = dl.d.level;
+        let mut ctx = (version >= 3).then(|| features::PlanCtx::new(&hand, level));
         let moves = dl.d.legal();
         let start = a.len();
         a.resize(start + moves.len() * ad, 0);
         for (m, r) in moves.iter().zip(a[start..].chunks_mut(ad)) {
-            features::encode_action(m, &hand, level, version, r);
+            features::encode_action(m, &hand, level, version, r, ctx.as_mut());
         }
         n.push(moves.len() as i32);
     }
@@ -284,6 +293,8 @@ fn guandan_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ACTION_DIM", features::ACTION_DIM)?;
     m.add("STATE_DIM_V2", features::STATE_DIM_V2)?;
     m.add("ACTION_DIM_V2", features::ACTION_DIM_V2)?;
+    m.add("STATE_DIM_V3", features::STATE_DIM_V3)?;
+    m.add("ACTION_DIM_V3", features::ACTION_DIM_V3)?;
     m.add("ORACLE_DIM", features::ORACLE_DIM)?;
     Ok(())
 }

@@ -4,6 +4,7 @@
 use crate::combos::{ctype, wild_type, BJ, N_KINDS, N_TYPES, SJ};
 use crate::deal::Deal;
 use crate::combos::Move;
+use crate::plan::{Planner, St};
 
 pub const CARD_DIM: usize = 2 * N_TYPES;
 pub const HISTORY: usize = 8;
@@ -20,12 +21,41 @@ pub const STATE_DIM_V2: usize = STATE_DIM + (HISTORY_V2 - HISTORY) * (CARD_DIM +
 pub const AGG: usize = 27 + 6 * 4 + 4 + 2 + 14 * 3;
 pub const ACTION_DIM_V2: usize = ACTION_DIM + CARD_DIM + AGG;
 
+// Version 3 appends the hand decomposition (see plan.rs): on the state, the fewest sets the hand splits into; on each
+// action, that number after the move (unary) and how the move changes it (<= -1, 0, +1, >= +2).
+pub const PLAN_CAP: usize = 14;
+pub const STATE_DIM_V3: usize = STATE_DIM_V2 + PLAN_CAP;
+pub const ACTION_DIM_V3: usize = ACTION_DIM_V2 + PLAN_CAP + 4;
+
 pub fn state_dim(version: u8) -> usize {
-    if version >= 2 { STATE_DIM_V2 } else { STATE_DIM }
+    if version >= 3 { STATE_DIM_V3 } else if version >= 2 { STATE_DIM_V2 } else { STATE_DIM }
 }
 
 pub fn action_dim(version: u8) -> usize {
-    if version >= 2 { ACTION_DIM_V2 } else { ACTION_DIM }
+    if version >= 3 { ACTION_DIM_V3 } else if version >= 2 { ACTION_DIM_V2 } else { ACTION_DIM }
+}
+
+/// The acting player's hand decomposition, shared by all the moves of one decision.
+pub struct PlanCtx {
+    planner: Planner,
+    st: St,
+    now: u8,
+    level: u8,
+}
+
+impl PlanCtx {
+    pub fn new(hand: &[u8], level: u8) -> PlanCtx {
+        let st = St::from_cards(hand, level);
+        let mut planner = Planner::new();
+        let now = planner.min_sets(&st);
+        PlanCtx { planner, st, now, level }
+    }
+}
+
+fn thermometer(out: &mut [u8], v: usize, cap: usize) {
+    for k in 0..cap {
+        out[k] = (k < v) as u8;
+    }
 }
 
 /// Two bits per card type: "at least one copy" and "both copies".
@@ -119,9 +149,13 @@ pub fn encode_state(d: &Deal, seat: usize, version: u8, out: &mut [u8]) {
             o += CARD_DIM + 4;
         }
     }
+    if version >= 3 {
+        let sets = Planner::new().min_sets(&St::from_cards(&d.hands[seat], d.level)) as usize;
+        thermometer(&mut out[STATE_DIM_V2..STATE_DIM_V3], sets, PLAN_CAP);
+    }
 }
 
-pub fn encode_action(m: &Move, hand: &[u8], level: u8, version: u8, out: &mut [u8]) {
+pub fn encode_action(m: &Move, hand: &[u8], level: u8, version: u8, out: &mut [u8], plan: Option<&mut PlanCtx>) {
     debug_assert_eq!(out.len(), action_dim(version));
     out.fill(0);
     let hand_size = hand.len();
@@ -138,6 +172,14 @@ pub fn encode_action(m: &Move, hand: &[u8], level: u8, version: u8, out: &mut [u
     out[o + (m.combo.value.max(0) as usize).min(15)] = 1;
     if version >= 2 {
         encode_remaining(m, hand, level, &mut out[ACTION_DIM..]);
+    }
+    if version >= 3 {
+        let ctx = plan.expect("version 3 needs a PlanCtx");
+        let after = ctx.planner.min_sets(&ctx.st.minus(&m.cards, ctx.level)) as i32;
+        let at = ACTION_DIM_V2;
+        thermometer(&mut out[at..at + PLAN_CAP], after as usize, PLAN_CAP);
+        let class = match after - ctx.now as i32 { i32::MIN..=-1 => 0, 0 => 1, 1 => 2, _ => 3 };
+        out[at + PLAN_CAP + class] = 1;
     }
 }
 
