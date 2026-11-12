@@ -1,7 +1,7 @@
 {
   "hidden": 512,
   "bc_lr": 0.0003,
-  "lr": 0.0001,
+  "lr": 5e-05,
   "clip": 0.2,
   "epochs": 2,
   "minibatch": 4096,
@@ -12,18 +12,26 @@
   "belief_coef": 0.05,
   "lam": 0.95,
   "max_grad_norm": 1.0,
-  "p_heuristic": 0.2,
-  "p_dmc": 0.15,
-  "p_snapshot": 0.15,
+  "p_heuristic": 0.15,
+  "p_dmc": 0.1,
+  "p_snapshot": 0.35,
   "p_tribute": 0.75,
+  "p_runout": 0.15,
+  "p_endgame": 0.35,
+  "match_bonus": 0.0,
   "snapshot_every": 10,
   "max_snapshots": 20,
+  "league": [
+    "runs/plan1/gen2.pt",
+    "runs/plan1/gen1.pt",
+    "runs/plan1/gen0.pt"
+  ],
   "deals_per_task": 8,
   "fast": true,
-  "version": 2,
+  "version": 3,
   "tables_per_worker": 32,
   "queue_per_worker": 1,
   "workers": 10,
   "device": "auto",
-  "seed": 0
+  "seed": 5
 }
