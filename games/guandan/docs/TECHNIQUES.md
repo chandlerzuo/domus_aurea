@@ -151,6 +151,15 @@ endgame search +0.12, **exact solving of sampled worlds** (`RsDeal.solve`, alpha
 Two likely reasons: the solver assumes every opponent plays perfectly while the real ones follow the policy, and
 solving a sampled world lets the mover use information they do not have (strategy fusion).
 
+**The "saved runout" pattern (humans hold a bomb, a full house and a high single, then lead all three in a row).**
+Findings: (1) on small constructed positions (`runout_position(small=True)`, solvable exactly) perfect play by everyone
+leaves the defending side at -2.09 levels (wins 6%) and the model already gets -1.85, so a formed runout cannot be
+stopped -- the loss happens earlier, in letting it form or in the race to go out. (2) A scripted whole-deal hoarder
+(`HoarderAgent`, with a heuristic partner) does *worse* against the model than the plain heuristic player (-2.70 vs
+-2.04 levels), so the pattern only works with human timing. Training against constructed runout positions (`--p-runout`)
+helped a little (+0.11 on `scripts/evaluate_runout.py`) but cannot close the gap. Next step needs real games:
+`scripts/find_runouts.py --db <copy of the server's games.db>` lists the finishes and the AI's missed chances.
+
 **Training the policy toward the search player's choices (tried, no gain).**
 `guandan/rl/distill.py`, `scripts/label_search.py` and `scripts/fit_distill.py` label decisions
 with the search (policy shifted toward the better-looking candidates) and fit the policy to the

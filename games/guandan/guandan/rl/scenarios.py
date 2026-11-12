@@ -77,7 +77,7 @@ def runout_hand(rng: np.random.Generator, level: int) -> list[frozenset]:
     return [frozenset(c) for c in combos]
 
 
-def runout_position(rng: np.random.Generator):
+def runout_position(rng: np.random.Generator, small: bool = False):
     """(deal, runout seat, agents for the runout team) -- the runout seat is on lead; the learner plays the other team."""
     level = int(rng.integers(13))
     plan = runout_hand(rng, level)
@@ -87,6 +87,8 @@ def runout_position(rng: np.random.Generator):
     # The other side has to be able to fight back: with 9+ cards each it cannot race a ten-card runout at all.
     lo, hi = 4, int(rng.choice([8, 11, 14]))
     sizes = {partner(h): int(rng.integers(4, 13)), (h + 1) % 4: int(rng.integers(lo, hi + 1)), (h + 3) % 4: int(rng.integers(lo, hi + 1))}
+    if small:   # small enough to be solved exactly (used to measure how much of the loss is avoidable)
+        sizes = {partner(h): int(rng.integers(2, 5)), (h + 1) % 4: int(rng.integers(2, 6)), (h + 3) % 4: int(rng.integers(2, 6))}
     hands: list[list[int]] = [[] for _ in range(4)]
     hands[h] = sorted(mine)
     at = 0
