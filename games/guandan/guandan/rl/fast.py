@@ -81,13 +81,17 @@ class _Traj:
 
 
 def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, opponents, p_tribute: float,
-               lam: float, reward_scale: float, width: int = 64, version: int = 1, match_bonus: float = 0.0) -> dict:
+               lam: float, reward_scale: float, width: int = 64, version: int = 1, match_bonus: float = 0.0,
+               p_endgame: float = 0.0) -> dict:
     """`learner` = (actor, critic); `opponents` = callable(rng) -> ("self"|"heuristic"|"dmc"|"snapshot", net or None).
 
     mode "bc": the heuristic plays all four seats and its choices are recorded (imitation data).
     mode "ppo": the learner's sampled moves are recorded, with GAE advantages from the oracle critic.
     `match_bonus` > 0 adds that many levels to the reward (and subtracts it for the other side) when the deal
     ends the match, i.e. the team playing its own level at A wins by 2 or more levels.
+    `p_endgame` is the share of deals that start late: the heuristic plays the deal forward until a random
+    12-40 cards are left in total, and the learner trains only on the rest. Late positions are rare in ordinary
+    self-play, so this gives the endgame many more examples.
     """
     from .dmc import random_match
 
@@ -98,6 +102,12 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
     started = 0
 
     def new_table() -> dict:
+        while True:
+            t = _new_table()
+            if t is not None:
+                return t
+
+    def _new_table():
         m = random_match(rng, p_tribute)
         d = m.new_deal()
         me = int(rng.integers(2))
@@ -117,8 +127,18 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
                 ctrl.append(kind)  # "dmc" or "snapshot": batched network controllers
         for t in m.pending_returns:
             m.give_return(t.receiver, HeuristicAgent(0).choose_return(d.hands[t.receiver], d.level))
+        rs = rs_from_deal(d)
+        if mode != "bc" and rng.random() < p_endgame:
+            left, fw = int(rng.integers(12, 41)), HeuristicAgent(int(rng.integers(2**31)))
+            while not rs.done and sum(rs.counts) > left:
+                if rs.n_legal() == 1:
+                    rs.play_index(0)
+                else:
+                    rs.play_index(fw.act(fast_observation(rs, rs.to_act)))
+            if rs.done:
+                return None
         ends = m.level_team is not None and m.team_levels[m.level_team] == ACE   # a win by this team with up >= 2 ends the match
-        return {"rs": rs_from_deal(d), "ctrl": ctrl, "agents": agents, "me": me, "kind": kind,
+        return {"rs": rs, "ctrl": ctrl, "agents": agents, "me": me, "kind": kind,
                 "match_team": m.level_team if ends else None,
                 "net": net, "trajs": [_Traj() for _ in range(4)]}
 
