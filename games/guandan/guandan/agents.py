@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from .cards import ctype, is_wild, value
-from .combos import Move
+from .combos import Kind, Move, legal_moves
 from .game import partner, return_options
 
 
@@ -134,4 +134,79 @@ class HeuristicAgent(Agent):
         return 0
 
 
-AGENTS = {"random": RandomAgent, "heuristic": HeuristicAgent}
+class HoarderAgent(HeuristicAgent):
+    """The "save a runout" pattern that human players used to beat the AI.
+
+    Early on it keeps a reserve of strong combos back -- its best bomb, its best full house / plate / tube /
+    straight, and its highest single or pair -- and sheds everything else like the heuristic player. Once only the
+    reserve is left it leads the combos one after another (the non-bomb combo first, then the bomb, then the
+    high single), so the opponents never get to play their leftover cards in between. When it must follow with only
+    the reserve left, it takes the lead with the cheapest reserve combo that beats the table.
+    """
+
+    name = "hoarder"
+
+    def __init__(self, seed: int | None = None, plan: list[frozenset] | None = None):
+        super().__init__(seed)
+        self.plan: list[frozenset] | None = plan      # combos to save and then lead in a row (given, or chosen from the hand)
+        self.reserve: set[int] = set().union(*plan) if plan else set()
+
+    def _make_plan(self, hand, level) -> list[frozenset]:
+        moves = legal_moves(hand, level, None)
+        used: set[int] = set()
+        plan: list[frozenset] = []
+
+        def take(cands, key):
+            free = [m for m in cands if not used & set(m.cards)]
+            if free:
+                m = max(free, key=key)
+                used.update(m.cards)
+                plan.append(frozenset(m.cards))
+
+        take([m for m in moves if m.combo.is_bomb], lambda m: m.combo.power())
+        take([m for m in moves if m.combo.kind in (Kind.FULL_HOUSE, Kind.PLATE, Kind.TUBE, Kind.STRAIGHT)],
+             lambda m: (len(m.cards), _strength(m, level)))
+        take([m for m in moves if m.combo.kind in (Kind.SINGLE, Kind.PAIR)], lambda m: _strength(m, level) + 0.01 * len(m.cards))
+        return plan if len(plan) >= 2 else []
+
+    def act(self, obs: dict) -> int:
+        legal: list[Move] = obs["legal"]
+        hand, level, seat, counts = obs["hand"], obs["level"], obs["seat"], obs["counts"]
+        for i, m in enumerate(legal):  # going out beats everything
+            if len(m.cards) == len(hand):
+                return i
+        if self.plan is None:
+            self.plan = self._make_plan(hand, level)
+        self.plan = [c for c in self.plan if c <= set(hand)]   # combos already played drop out
+        self.reserve = set().union(*self.plan) if self.plan else set()
+        if not self.plan:
+            return super().act(obs)
+        opp_min = min((counts[s] for s in ((seat + 1) % 4, (seat + 3) % 4) if s not in obs["finished"]), default=27)
+        rest = [i for i, m in enumerate(legal) if not m.is_pass and not (set(m.cards) & self.reserve)]
+        shedding = any(c not in self.reserve for c in hand)
+        if obs["leading"]:
+            if shedding and rest:
+                return rest[self._lead([legal[i] for i in rest], hand, level, opp_min)]
+            run = [i for i, m in enumerate(legal) if frozenset(m.cards) in self.plan]
+            if run:  # the runout: the non-bomb combo first, then the bomb, then the high single/pair
+                return min(run, key=lambda i: (len(legal[i].cards) <= 2, legal[i].combo.is_bomb, -len(legal[i].cards)))
+            return super().act(obs)
+        if obs["table_seat"] == partner(seat):
+            return 0
+        if shedding and rest:
+            sub = [legal[0]] + [legal[i] for i in rest]
+            j = self._follow(obs, sub, hand, level, opp_min)
+            return 0 if j == 0 else rest[j - 1]
+        beat = [i for i, m in enumerate(legal) if not m.is_pass and frozenset(m.cards) in self.plan]
+        if beat and not shedding:
+            return min(beat, key=lambda i: (legal[i].combo.is_bomb, legal[i].combo.power()))
+        return 0
+
+
+class RunoutAgent(HoarderAgent):
+    """A hoarder whose whole hand is the runout: it leads the given combos one after another."""
+
+    name = "runout"
+
+
+AGENTS = {"random": RandomAgent, "heuristic": HeuristicAgent, "hoarder": HoarderAgent}

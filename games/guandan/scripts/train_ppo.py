@@ -35,8 +35,9 @@ if __name__ == "__main__":
     ap.add_argument("--p-snapshot", type=float, default=PPOConfig.p_snapshot, help="share of deals against league + snapshots")
     ap.add_argument("--match-bonus", type=float, default=0.0, help="extra levels of reward for the deal that ends the match")
     ap.add_argument("--p-endgame", type=float, default=0.0, help="share of deals that start late (12-40 cards left in total)")
+    ap.add_argument("--p-runout", type=float, default=0.0, help="share of deals that start from a constructed saved-runout position")
     a = ap.parse_args()
-    cfg = PPOConfig(p_endgame=a.p_endgame, match_bonus=a.match_bonus, league=a.league, p_heuristic=a.p_heuristic, p_dmc=a.p_dmc, p_snapshot=a.p_snapshot, workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
+    cfg = PPOConfig(p_runout=a.p_runout, p_endgame=a.p_endgame, match_bonus=a.match_bonus, league=a.league, p_heuristic=a.p_heuristic, p_dmc=a.p_dmc, p_snapshot=a.p_snapshot, workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
                     steps_per_update=a.steps_per_update, tables_per_worker=a.tables, epochs=a.epochs,
                     queue_per_worker=a.queue)
     train(cfg, a.bc_deals, a.ppo_deals, a.out, resume=a.resume, init=a.init)
