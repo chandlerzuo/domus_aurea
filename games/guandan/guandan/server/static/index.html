@@ -62,6 +62,8 @@
   .picked .card { width: 46px; height: 68px; font-size: 16px; flex-direction: row; justify-content: center; align-items: flex-start; padding-top: 3px; box-sizing: border-box; cursor: pointer; box-shadow: 0 3px 0 #e8c547; }
   .picked .card br { display: none; }
   .hand.mine .card[draggable="true"] { cursor: grab; }
+  .hand.organizing { outline: 2px dashed #e8c547; outline-offset: 2px; border-radius: 8px; }
+  .organize-hint { font-size: 13px; color: #e8c547; }
   .hand .card.dragging { opacity: .35; }
   .hand .gap { flex: none; width: 6px; align-self: stretch; border-radius: 6px; transition: width .1s; }
   .hand.dragging .gap { width: 26px; outline: 1px dashed rgba(255,255,255,.35); }
@@ -116,7 +118,9 @@
             <button id="playBtn">出牌</button>
             <button id="passBtn" class="secondary">不出</button>
             <button id="clearBtn" class="secondary">重选</button>
-            <button id="sortBtn" class="secondary" title="按点数把牌重新叠放">整理手牌</button>
+            <button id="sortBtn" class="secondary" title="进入整理模式：拖动手牌调整位置；完成后再选牌出牌">整理手牌</button>
+            <button id="autoSortBtn" class="secondary hidden" title="按点数把牌重新叠放">自动排序</button>
+            <span id="organizeHint" class="organize-hint hidden">整理中：拖动牌来调整位置，完成后点“完成整理”再选牌</span>
             <button id="nextBtn" class="hidden">下一局</button>
             <button id="leaveBtn" class="secondary">离开座位</button>
           </div>
@@ -193,6 +197,7 @@ const SUIT_TEXT = { s: "♠", h: "♥", c: "♣", d: "♦" };
 const cardText = l => l === "sj" ? "小王" : l === "BJ" ? "大王" : SUIT_TEXT[l[1]] + rankName(l[0]);
 
 // ---- my hand: same-rank cards stacked in a column, columns side by side; drag cards to rearrange ----
+let organizing = false;                      // "organize cards" mode: cards can be dragged, but not selected
 let handLayout = { deal: null, cols: [] };   // cols: arrays of card ids, left to right
 let dragIds = null;                          // ids being dragged (null when not dragging)
 const groupKey = c => (c.label === "sj" || c.label === "BJ") ? c.label : c.label[0];
@@ -237,6 +242,7 @@ function renderHand(s) {
   hand.replaceChildren();
   hand.classList.remove("dragging");
   hand.classList.toggle("mine", s.as_player);
+  hand.classList.toggle("organizing", s.as_player && organizing);
   reconcileHand(s.hand, s.deal_no);
   const cardById = new Map(s.hand.map(c => [c.id, c]));
   const order = new Map(s.hand.map((c, i) => [c.id, i]));   // the server sends the hand sorted ascending
@@ -257,7 +263,7 @@ function renderHand(s) {
   const gap = at => {
     const g = document.createElement("div");
     g.className = "gap";
-    if (mine) allowDrop(g, () => { const m = dragIds; moveCards(m, null)(at); endDrag(); });
+    if (mine && organizing) allowDrop(g, () => { const m = dragIds; moveCards(m, null)(at); endDrag(); });
     return g;
   };
   handLayout.cols.forEach((col, ci) => {
@@ -270,15 +276,16 @@ function renderHand(s) {
       const card = cardById.get(id);
       const el = cardEl(card.label, card.wild);
       el.dataset.id = id;
-      if (mine) {
-        el.onclick = () => { selected.has(id) ? selected.delete(id) : selected.add(id); render(); };
+      if (mine && organizing) {
         el.draggable = true;
         el.addEventListener("dragstart", e => startDrag(e, id));
         el.addEventListener("dragend", endDrag);
+      } else if (mine) {
+        el.onclick = () => { selected.has(id) ? selected.delete(id) : selected.add(id); render(); };
       }
       colEl.append(el);
     }
-    if (mine) allowDrop(colEl, e => {
+    if (mine && organizing) allowDrop(colEl, e => {
       // insert before the first card whose middle is below the pointer; otherwise at the bottom
       const m = dragIds, rest = shown.filter(x => !m.includes(x));
       const before = rest.find(x => { const r = colEl.querySelector(`[data-id="${x}"]`).getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
@@ -553,6 +560,11 @@ function renderPlaying() {
   const ids = new Set(s.hand.map(x => x.id));
   selected = new Set([...selected].filter(id => ids.has(id)));
   renderHand(s);
+  if (!s.as_player) organizing = false;
+  $("sortBtn").textContent = organizing ? "完成整理" : "整理手牌";
+  $("sortBtn").disabled = !s.as_player;
+  $("autoSortBtn").classList.toggle("hidden", !organizing);
+  $("organizeHint").classList.toggle("hidden", !organizing);
   if (s.as_player) {
     $("playBtn").textContent = myReturn ? "还贡" : "出牌";
     $("playBtn").disabled = !(myTurn || myReturn) || selected.size === 0;
@@ -596,7 +608,8 @@ $("playBtn").onclick = () => {
   selected.clear();
 };
 $("passBtn").onclick = () => { selected.clear(); act("play", { cards: [] }); };
-$("sortBtn").onclick = () => { handLayout = { deal: null, cols: [] }; render(); };
+$("sortBtn").onclick = () => { organizing = !organizing; render(); };
+$("autoSortBtn").onclick = () => { handLayout = { deal: null, cols: [] }; render(); };
 $("clearBtn").onclick = () => { selected.clear(); render(); };
 $("nextBtn").onclick = () => act("next", {});
 $("startBtn").onclick = () => act("start", {});
