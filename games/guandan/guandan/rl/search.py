@@ -169,16 +169,23 @@ class SearchAgent(Agent):
     name = "ppo+"
 
     def __init__(self, actor, seed: int | None = None, worlds: int = 16, topk: int = 3, margin: float = 0.0,
-                 belief: float = 0.0):
+                 belief: float = 0.0, endgame_cards: int = 0, endgame_worlds: int = 128, endgame_topk: int = 99):
         super().__init__(seed)
         self.actor, self.worlds, self.topk, self.margin, self.belief = actor, worlds, topk, margin, belief
+        # With few cards left (all hands together), look at every legal move with many more sampled hands: the
+        # hidden cards are few, so sampled worlds are close to the truth and the extra search is cheap.
+        self.endgame_cards, self.endgame_worlds, self.endgame_topk = endgame_cards, endgame_worlds, endgame_topk
 
     def act(self, obs: dict) -> int:
         legal = obs["legal"]
         if len(legal) == 1:
             return 0
-        i, report = search_choice(self.actor, obs, self.rng, self.worlds, self.topk, margin=self.margin,
-                                    belief=self.belief)
+        if sum(obs["counts"]) <= self.endgame_cards:
+            i, report = search_choice(self.actor, obs, self.rng, self.endgame_worlds, min(len(legal), self.endgame_topk), min_prob=0.0,
+                                      margin=self.margin, belief=self.belief)
+        else:
+            i, report = search_choice(self.actor, obs, self.rng, self.worlds, self.topk, margin=self.margin,
+                                      belief=self.belief)
         if report["searched"]:
             self.info = {"search": {f"{legal[j].combo} x{len(legal[j].cards)}": {"p": pr, "value": v}
                                     for j, pr, v in report["cands"]}}

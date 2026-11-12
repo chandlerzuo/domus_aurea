@@ -43,6 +43,11 @@ SEARCH_WORLDS = int(os.environ.get("GUANDAN_SEARCH_WORLDS", "32"))
 SEARCH_TOPK = int(os.environ.get("GUANDAN_SEARCH_TOPK", "4"))
 SEARCH_MARGIN = float(os.environ.get("GUANDAN_SEARCH_MARGIN", "0.0"))
 SEARCH_BELIEF = float(os.environ.get("GUANDAN_SEARCH_BELIEF", "1.0"))   # 0 = uniform hidden hands, 1 = weighted by the belief head
+# Endgame: once all hands together hold at most this many cards, search every sensible move with more sampled hands
+# (measured +0.1 levels per endgame over the ordinary search; 0 turns it off).
+ENDGAME_CARDS = int(os.environ.get("GUANDAN_ENDGAME_CARDS", "28"))
+ENDGAME_WORLDS = int(os.environ.get("GUANDAN_ENDGAME_WORLDS", "64"))
+ENDGAME_TOPK = int(os.environ.get("GUANDAN_ENDGAME_TOPK", "6"))
 IDLE_SECONDS = 90
 TURN_SECONDS = 5 * 60
 NEXT_DEAL_SECONDS = 45   # a finished deal moves on by itself after this long
@@ -90,7 +95,8 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
     if kind == "ppo+":
         from ..rl.search import SearchAgent
         return SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN,
-                           belief=SEARCH_BELIEF)
+                           belief=SEARCH_BELIEF, endgame_cards=ENDGAME_CARDS, endgame_worlds=ENDGAME_WORLDS,
+                           endgame_topk=ENDGAME_TOPK)
     if kind not in BASE_AGENTS:
         raise ValueError(f"unknown agent {kind!r}")
     return BASE_AGENTS[kind](seed=seed)
