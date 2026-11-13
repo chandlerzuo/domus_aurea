@@ -24,6 +24,7 @@ from ..agents import Agent
 from .features import ACTION_DIM, CARD_DIM, STATE_DIM, action_dim, card_vec, encode_actions, encode_state, state_dim
 
 ORACLE_DIM = 3 * CARD_DIM
+N_STYLES = 24   # opponent identities the style head can name: 0 self, 1 heuristic, 2 dmc, 3-11 scripted styles, 12 runout, 13+ league members
 DEFAULT_POLICY = Path(__file__).resolve().parents[2] / "runs" / "ppo" / "model.pt"
 
 
@@ -43,6 +44,7 @@ class Actor(nn.Module):
         self.action = nn.Sequential(nn.Linear(action_dim(version), 256), nn.ReLU())
         self.score = nn.Sequential(nn.Linear(hidden + 256, 256), nn.ReLU(), nn.Linear(256, 1))
         self.belief = nn.Linear(hidden, ORACLE_DIM)
+        self.style = nn.Linear(hidden, N_STYLES)    # who is on the other team? (auxiliary: shapes the state embedding)
 
     def _score(self, hp: torch.Tensor, ea: torch.Tensor) -> torch.Tensor:
         """score([h, e]) with the first layer split: W [h, e] + b = W_h h + (W_e e + b). `hp` is the
@@ -122,7 +124,8 @@ def load_policy(path: str | Path, device: str = "cpu", critic: bool = False):
     ckpt = torch.load(path, map_location=device, weights_only=True)
     version = ckpt.get("version", 1)
     actor = Actor(ckpt["hidden"], version)
-    actor.load_state_dict(ckpt["actor"])
+    res = actor.load_state_dict(ckpt["actor"], strict=False)
+    assert not [k for k in res.missing_keys if not k.startswith("style.")] and not res.unexpected_keys, res   # older files have no style head
     actor = actor.to(device).eval()
     if not critic:
         return actor

@@ -37,7 +37,13 @@ from .policy import (Actor, Critic, PolicyAgent, encode_oracle, load_policy, pad
                      save_policy, widen_policy)
 
 torch.set_num_threads(1)
-FIELDS = ("S", "O", "n", "chosen", "logp", "adv", "ret")
+def style_label(name: str) -> int:
+    """The style head's class for a scripted opponent: 1 heuristic, 3.. the other styles in agents.STYLE_NAMES order."""
+    from ..agents import STYLE_NAMES
+    return 1 if name == "heuristic" else 3 + STYLE_NAMES.index(name) - 1
+
+
+FIELDS = ("S", "O", "n", "chosen", "logp", "adv", "ret", "L")
 
 
 @dataclass
@@ -59,6 +65,7 @@ class PPOConfig:
     p_dmc: float = 0.15
     p_snapshot: float = 0.15
     p_tribute: float = 0.75
+    style_coef: float = 0.0        # weight of the auxiliary loss for naming the opponent's style (needs labels; see fast.play_batch)
     shape_first: float = 0.0       # extra reward (levels) for the player who goes out first
     shape_bomb: float = 0.0        # extra reward (levels) per bomb a player plays (negative: keeps bombs)
     p_style: float = 0.0           # share of deals against a scripted style (see agents.STYLES), drawn from `styles`
@@ -206,14 +213,16 @@ def play_task_fast(seed: int, n_deals: int, mode: str, latest: tuple[str, int], 
 
     def opponents(r: np.random.Generator):
         if cfg.p_style and cfg.styles and r.random() < cfg.p_style:
-            return "style:" + cfg.styles[int(r.integers(len(cfg.styles)))], None
+            name = cfg.styles[int(r.integers(len(cfg.styles)))]
+            return "style:" + name, None, style_label(name)
         u = r.random()
         if u < cfg.p_heuristic:
             return "heuristic", None
         if u < cfg.p_heuristic + cfg.p_dmc and DMC_MODEL.exists():
             return "dmc", _dmc_net()
         if u < cfg.p_heuristic + cfg.p_dmc + cfg.p_snapshot and snapshots:
-            return "snapshot", _actor(snapshots[int(r.integers(len(snapshots)))], 0)[0]
+            k = int(r.integers(len(snapshots)))
+            return "snapshot", _actor(snapshots[k], 0)[0], (13 + k if k < min(len(cfg.league), 10) else 0)
         return "self", None
 
     return fast_rl.play_batch(rng, n_deals, mode, learner, opponents, cfg.p_tribute, cfg.lam, REWARD_SCALE,
@@ -229,7 +238,7 @@ class Batch:
 
     def __init__(self, parts: list[dict]):
         for k in FIELDS:
-            setattr(self, k, np.concatenate([p[k] for p in parts]))
+            setattr(self, k, np.concatenate([p[k] if k in p else np.zeros(len(p["n"]), np.int64) for p in parts]))
         self.A = np.concatenate([p["A"] for p in parts])
         self.off = np.concatenate([[0], np.cumsum(self.n)[:-1]])
 
@@ -244,7 +253,7 @@ class Batch:
         t = lambda x: torch.from_numpy(np.ascontiguousarray(x)).to(dev)
         self._dev = {"S": t(self.S), "O": t(self.O), "A": t(self.A), "n": t(self.n.astype(np.int64)),
                      "off": t(self.off.astype(np.int64)), "chosen": t(self.chosen), "logp": t(self.logp),
-                     "adv": t(self.adv), "ret": t(self.ret)}
+                     "adv": t(self.adv), "ret": t(self.ret), "L": t(self.L)}
         return self
 
     def minibatch(self, idx: np.ndarray, dev: torch.device) -> dict:
@@ -257,7 +266,7 @@ class Batch:
             rows = d["off"][ix][seg] + pos
             return {"s": d["S"][ix].float(), "o": d["O"][ix].float(), "a": d["A"][rows].float(), "seg": seg,
                     "pos": pos, "width": int(c.max()), "chosen": d["chosen"][ix], "logp": d["logp"][ix],
-                    "adv": d["adv"][ix], "ret": d["ret"][ix]}
+                    "adv": d["adv"][ix], "ret": d["ret"][ix], "L": d["L"][ix]}
         c = self.n[idx]
         seg = np.repeat(np.arange(len(idx)), c)
         pos = np.arange(c.sum()) - np.repeat(np.cumsum(c) - c, c)
@@ -266,7 +275,7 @@ class Batch:
         return {"s": t(self.S[idx], torch.float32), "o": t(self.O[idx], torch.float32),
                 "a": t(self.A[rows], torch.float32), "seg": t(seg), "pos": t(pos), "width": int(c.max()),
                 "chosen": t(self.chosen[idx]), "logp": t(self.logp[idx]), "adv": t(self.adv[idx]),
-                "ret": t(self.ret[idx])}
+                "ret": t(self.ret[idx]), "L": t(self.L[idx])}
 
 
 def _forward(actor: Actor, critic: Critic, mb: dict):
@@ -276,8 +285,9 @@ def _forward(actor: Actor, critic: Critic, mb: dict):
     logp = logp_all.gather(1, mb["chosen"][:, None]).squeeze(1)
     ent = -(logp_all.exp() * logp_all).sum(-1).mean()
     belief = nn.functional.binary_cross_entropy_with_logits(actor.belief(hs), mb["o"])
+    style = nn.functional.cross_entropy(actor.style(hs), mb["L"])
     v = critic(mb["s"], mb["o"])
-    return logp_all, logp, ent, belief, v
+    return logp_all, logp, ent, belief, v, style
 
 
 def bc_update(actor, critic, opt, batch: Batch, cfg: PPOConfig, rng, dev) -> dict:
@@ -285,7 +295,7 @@ def bc_update(actor, critic, opt, batch: Batch, cfg: PPOConfig, rng, dev) -> dic
     order, k = rng.permutation(len(batch)), 0
     for st in range(0, len(order), cfg.minibatch):
         mb = batch.minibatch(order[st:st + cfg.minibatch], dev)
-        logp_all, logp, _, belief, v = _forward(actor, critic, mb)
+        logp_all, logp, _, belief, v, _ = _forward(actor, critic, mb)
         ce = -logp.mean()
         vl = nn.functional.mse_loss(v, mb["ret"])
         loss = ce + cfg.value_coef * vl + cfg.belief_coef * belief
@@ -303,19 +313,19 @@ def bc_update(actor, critic, opt, batch: Batch, cfg: PPOConfig, rng, dev) -> dic
 
 
 def ppo_update(actor, critic, opt, batch: Batch, cfg: PPOConfig, rng, dev) -> dict:
-    stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "belief": 0.0, "clip_frac": 0.0, "kl": 0.0}
+    stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "belief": 0.0, "clip_frac": 0.0, "kl": 0.0, "style": 0.0}
     adv_mean, adv_std = batch.adv.mean(), batch.adv.std() + 1e-8
     k = 0
     for _ in range(cfg.epochs):
         order = rng.permutation(len(batch))
         for st in range(0, len(order), cfg.minibatch):
             mb = batch.minibatch(order[st:st + cfg.minibatch], dev)
-            _, logp, ent, belief, v = _forward(actor, critic, mb)
+            _, logp, ent, belief, v, style = _forward(actor, critic, mb)
             ratio = torch.exp(logp - mb["logp"])
             a = (mb["adv"] - float(adv_mean)) / float(adv_std)
             pl = -torch.min(ratio * a, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a).mean()
             vl = nn.functional.mse_loss(v, mb["ret"])
-            loss = pl + cfg.value_coef * vl + cfg.belief_coef * belief - cfg.entropy * ent
+            loss = pl + cfg.value_coef * vl + cfg.belief_coef * belief + cfg.style_coef * style - cfg.entropy * ent
             opt.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_([*actor.parameters(), *critic.parameters()], cfg.max_grad_norm)
@@ -325,6 +335,7 @@ def ppo_update(actor, critic, opt, batch: Batch, cfg: PPOConfig, rng, dev) -> di
                 stats["value_loss"] += vl.item()
                 stats["entropy"] += ent.item()
                 stats["belief"] += belief.item()
+                stats["style"] += style.item()
                 stats["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean().item()
                 stats["kl"] += (mb["logp"] - logp).mean().item()
             k += 1

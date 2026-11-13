@@ -101,7 +101,7 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
     from .dmc import random_match
 
     actor, critic = learner if learner is not None else (None, None)
-    out = {k: [] for k in ("S", "O", "A", "n", "chosen", "logp", "adv", "ret")}
+    out = {k: [] for k in ("S", "O", "A", "n", "chosen", "logp", "adv", "ret", "L")}
     scores_by: dict[str, list] = defaultdict(list)
     tables: list[dict] = []
     started = 0
@@ -123,7 +123,7 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
             else:
                 ctrl.append("learn")
         return {"rs": rs_from_deal(d), "ctrl": ctrl, "agents": agents, "me": 1 - team(h), "kind": "runout",
-                "match_team": None, "net": None, "trajs": [_Traj() for _ in range(4)]}
+                "match_team": None, "net": None, "label": 12, "trajs": [_Traj() for _ in range(4)]}
 
     def _new_table():
         if mode == "ppo" and rng.random() < p_runout:
@@ -131,7 +131,9 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
         m = random_match(rng, p_tribute)
         d = m.new_deal()
         me = int(rng.integers(2))
-        kind, net = ("self", None) if mode == "bc" else opponents(rng)
+        got = ("self", None) if mode == "bc" else opponents(rng)
+        kind, net = got[0], got[1]
+        label = got[2] if len(got) > 2 else {"self": 0, "heuristic": 1, "dmc": 2}.get(kind, 0)
         ctrl, agents = [], [None] * 4
         for s in range(4):
             seed = int(rng.integers(2**31))
@@ -163,7 +165,7 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
         ends = m.level_team is not None and m.team_levels[m.level_team] == ACE   # a win by this team with up >= 2 ends the match
         return {"rs": rs, "ctrl": ctrl, "agents": agents, "me": me, "kind": kind,
                 "match_team": m.level_team if ends else None,
-                "net": net, "trajs": [_Traj() for _ in range(4)]}
+                "net": net, "label": label, "trajs": [_Traj() for _ in range(4)]}
 
     def finish(t: dict) -> None:
         win, up = t["rs"].result()
@@ -193,6 +195,7 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
             out["logp"] += tr.logp
             out["adv"] += adv
             out["ret"] += ret
+            out["L"] += [t["label"]] * len(tr.S)
 
     while tables or started < n_deals:
         while len(tables) < width and started < n_deals:
@@ -250,6 +253,6 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
     res = {"S": np.stack(out["S"]), "O": np.stack(out["O"]), "A": np.concatenate(out["A"]),
            "n": np.asarray(out["n"], np.int32), "chosen": np.asarray(out["chosen"], np.int64),
            "logp": np.asarray(out["logp"], np.float32), "adv": np.asarray(out["adv"], np.float32),
-           "ret": np.asarray(out["ret"], np.float32)}
+           "ret": np.asarray(out["ret"], np.float32), "L": np.asarray(out["L"], np.int64)}
     res.update(deals=n_deals, scores_by=dict(scores_by))
     return res

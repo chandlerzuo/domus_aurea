@@ -162,3 +162,29 @@ def test_feature_version_3_matches_python_and_extends_version_2():
             rs.play_index(i)
             steps += 1
     assert steps > 800
+
+
+def test_feature_version_4_matches_python_and_extends_version_3():
+    from guandan.rl.features import STATE_DIM_V3, STATE_DIM_V4, STYLE_DIM
+    assert core.STATE_DIM_V4 == STATE_DIM_V4 == STATE_DIM_V3 + STYLE_DIM
+    rng = np.random.default_rng(9)
+    steps = 0
+    for k in range(20):
+        hands = deal_cards(rng)
+        level, leader = int(rng.integers(13)), int(rng.integers(4))
+        py = Deal(hands, level, leader)
+        rs = core.RsDeal(hands, level, leader)
+        while not py.done:
+            seat = py.to_act
+            obs = py.observation(seat)
+            s4 = encode_state(obs, 4)
+            assert s4.shape == (STATE_DIM_V4,)
+            assert (rs.encode_state(seat, 4) == s4).all()
+            assert (s4[:STATE_DIM_V3] == encode_state(obs, 3)).all()
+            assert (rs.encode_actions(4) == encode_actions(obs, 4)).all()
+            i = int(rng.integers(len(obs["legal"])))
+            py.play(obs["legal"][i])
+            rs.play_index(i)
+            steps += 1
+    assert steps > 700
+    assert s4[STATE_DIM_V3:].sum() > 0       # the counters are filled in late in a deal

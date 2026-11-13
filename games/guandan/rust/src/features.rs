@@ -27,8 +27,13 @@ pub const PLAN_CAP: usize = 14;
 pub const STATE_DIM_V3: usize = STATE_DIM_V2 + PLAN_CAP;
 pub const ACTION_DIM_V3: usize = ACTION_DIM_V2 + PLAN_CAP + 4;
 
+// Version 4: per other player, counts of what they have done in this deal (see features.py `behaviour`).
+pub const STYLE_CAPS: [usize; 6] = [12, 10, 3, 8, 3, 8];
+pub const STYLE_DIM: usize = 3 * (12 + 10 + 3 + 8 + 3 + 8);
+pub const STATE_DIM_V4: usize = STATE_DIM_V3 + STYLE_DIM;
+
 pub fn state_dim(version: u8) -> usize {
-    if version >= 3 { STATE_DIM_V3 } else if version >= 2 { STATE_DIM_V2 } else { STATE_DIM }
+    if version >= 4 { STATE_DIM_V4 } else if version >= 3 { STATE_DIM_V3 } else if version >= 2 { STATE_DIM_V2 } else { STATE_DIM }
 }
 
 pub fn action_dim(version: u8) -> usize {
@@ -67,6 +72,44 @@ fn card_vec(cards: &[u8], out: &mut [u8]) {
             out[t + 1] = 1;
         } else {
             out[t] = 1;
+        }
+    }
+}
+
+fn behaviour(history: &[(usize, Move)], seat: usize, out: &mut [u8]) {
+    let mut stats = [[0usize; 6]; 4];
+    for (i, (s, m)) in history.iter().enumerate() {
+        let mut last: Option<usize> = None;     // who last played (not passed) among the three moves before this one
+        for j in (i.saturating_sub(3)..i).rev() {
+            if !history[j].1.is_pass() {
+                last = Some(history[j].0);
+                break;
+            }
+        }
+        if m.is_pass() {
+            stats[*s][1] += 1;
+            if let Some(l) = last {
+                if l % 2 != s % 2 {
+                    stats[*s][5] += 1;
+                }
+            }
+        } else {
+            stats[*s][0] += 1;
+            if m.combo.is_bomb() {
+                stats[*s][2] += 1;
+            }
+            match last {
+                None => stats[*s][3] += 1,
+                Some(l) if l % 2 == s % 2 => stats[*s][4] += 1,
+                _ => {}
+            }
+        }
+    }
+    let mut o = 0;
+    for k in 0..3 {
+        for (v, cap) in stats[(seat + 1 + k) % 4].iter().zip(STYLE_CAPS.iter()) {
+            thermometer(&mut out[o..o + cap], *v, *cap);
+            o += cap;
         }
     }
 }
@@ -152,6 +195,9 @@ pub fn encode_state(d: &Deal, seat: usize, version: u8, out: &mut [u8]) {
     if version >= 3 {
         let sets = Planner::new().min_sets(&St::from_cards(&d.hands[seat], d.level)) as usize;
         thermometer(&mut out[STATE_DIM_V2..STATE_DIM_V3], sets, PLAN_CAP);
+    }
+    if version >= 4 {
+        behaviour(&d.history, seat, &mut out[STATE_DIM_V3..STATE_DIM_V4]);
     }
 }
 

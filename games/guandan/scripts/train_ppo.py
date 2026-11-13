@@ -40,8 +40,9 @@ if __name__ == "__main__":
     ap.add_argument("--p-style", type=float, default=0.0, help="share of deals against those styles")
     ap.add_argument("--shape-first", type=float, default=0.0, help="extra reward (levels) for the player who goes out first")
     ap.add_argument("--shape-bomb", type=float, default=0.0, help="extra reward (levels) per bomb the player plays")
+    ap.add_argument("--style-coef", type=float, default=0.0, help="weight of the auxiliary loss that names the opponent's style")
     a = ap.parse_args()
-    cfg = PPOConfig(shape_first=a.shape_first, shape_bomb=a.shape_bomb, p_style=a.p_style, styles=a.styles, p_runout=a.p_runout, p_endgame=a.p_endgame, match_bonus=a.match_bonus, league=a.league, p_heuristic=a.p_heuristic, p_dmc=a.p_dmc, p_snapshot=a.p_snapshot, workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
+    cfg = PPOConfig(style_coef=a.style_coef, shape_first=a.shape_first, shape_bomb=a.shape_bomb, p_style=a.p_style, styles=a.styles, p_runout=a.p_runout, p_endgame=a.p_endgame, match_bonus=a.match_bonus, league=a.league, p_heuristic=a.p_heuristic, p_dmc=a.p_dmc, p_snapshot=a.p_snapshot, workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
                     steps_per_update=a.steps_per_update, tables_per_worker=a.tables, epochs=a.epochs,
                     queue_per_worker=a.queue)
     train(cfg, a.bc_deals, a.ppo_deals, a.out, resume=a.resume, init=a.init)

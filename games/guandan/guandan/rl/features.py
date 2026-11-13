@@ -40,8 +40,43 @@ STATE_DIM_V3 = STATE_DIM_V2 + PLAN_CAP
 ACTION_DIM_V3 = ACTION_DIM_V2 + PLAN_CAP + 4
 
 
+# Version 4 appends, for each of the three other players, counts of what they have done so far in this deal (unary,
+# capped): plays, passes, bombs, leads, plays over their own partner, passes that declined to contest an opponent's play.
+# They let the network tell a bomb-happy or passive opponent from a normal one. Mirrors rust/src/features.rs.
+STYLE_CAPS = (12, 10, 3, 8, 3, 8)
+STYLE_DIM = 3 * sum(STYLE_CAPS)
+STATE_DIM_V4 = STATE_DIM_V3 + STYLE_DIM
+
+
+def behaviour(history, seat: int, out: np.ndarray) -> None:
+    stats = [[0] * 6 for _ in range(4)]
+    for i, (s, m) in enumerate(history):
+        last = None                                  # who last played (not passed) among the three moves before this one
+        for j in range(i - 1, max(-1, i - 4), -1):
+            if not history[j][1].is_pass:
+                last = history[j][0]
+                break
+        if m.is_pass:
+            stats[s][1] += 1
+            if last is not None and last % 2 != s % 2:
+                stats[s][5] += 1
+        else:
+            stats[s][0] += 1
+            if m.combo.is_bomb:
+                stats[s][2] += 1
+            if last is None:
+                stats[s][3] += 1
+            elif last % 2 == s % 2:
+                stats[s][4] += 1
+    o = 0
+    for k in range(3):
+        for v, cap in zip(stats[(seat + 1 + k) % 4], STYLE_CAPS):
+            out[o:o + min(v, cap)] = 1
+            o += cap
+
+
 def state_dim(version: int = 1) -> int:
-    return STATE_DIM_V3 if version >= 3 else STATE_DIM_V2 if version >= 2 else STATE_DIM
+    return STATE_DIM_V4 if version >= 4 else STATE_DIM_V3 if version >= 3 else STATE_DIM_V2 if version >= 2 else STATE_DIM
 
 
 def action_dim(version: int = 1) -> int:
@@ -108,6 +143,9 @@ def encode_state(obs: dict, version: int = 1) -> np.ndarray:
     if version >= 3:
         x[STATE_DIM_V2:STATE_DIM_V2 + min(PLAN_CAP, min_sets_now(hand, obs["level"]))] = 1
         o += PLAN_CAP
+    if version >= 4:
+        behaviour(obs["history"], seat, x[STATE_DIM_V3:STATE_DIM_V4])
+        o += STYLE_DIM
     assert o == state_dim(version)
     return x
 
