@@ -12,7 +12,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 
-from ..agents import HeuristicAgent
+from ..agents import HeuristicAgent, make_style
 from ..cards import ACE
 from ..combos import move_from_tuple
 from ..game import Match, team
@@ -82,7 +82,8 @@ class _Traj:
 
 def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, opponents, p_tribute: float,
                lam: float, reward_scale: float, width: int = 64, version: int = 1, match_bonus: float = 0.0,
-               p_endgame: float = 0.0, p_runout: float = 0.0) -> dict:
+               p_endgame: float = 0.0, p_runout: float = 0.0, shape_first: float = 0.0,
+               shape_bomb: float = 0.0) -> dict:
     """`learner` = (actor, critic); `opponents` = callable(rng) -> ("self"|"heuristic"|"dmc"|"snapshot", net or None).
 
     mode "bc": the heuristic plays all four seats and its choices are recorded (imitation data).
@@ -94,6 +95,8 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
     self-play, so this gives the endgame many more examples.
     `p_runout` is the share of deals that start from a constructed "saved runout" position (see rl/scenarios.py): an
     opponent holds only a bomb / full house / high single and is on lead, and the learner plays the other team.
+    `shape_first` / `shape_bomb` add levels of reward to the *player* who goes out first / for each bomb a player
+    plays: they make agents with different temperaments (selfish racer, bomb hoarder, bomb spender).
     """
     from .dmc import random_match
 
@@ -140,6 +143,9 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
             elif kind == "heuristic":
                 ctrl.append("heur")
                 agents[s] = HeuristicAgent(seed)
+            elif kind.startswith("style:"):    # a scripted opponent with a personality (agents.STYLES)
+                ctrl.append("heur")
+                agents[s] = make_style(kind[6:], seed)
             else:
                 ctrl.append(kind)  # "dmc" or "snapshot": batched network controllers
         for t in m.pending_returns:
@@ -166,7 +172,10 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
         for s, tr in enumerate(t["trajs"]):
             if not tr.S:
                 continue
-            r = (worth if win == team(s) else -worth) / reward_scale
+            r = (worth if win == team(s) else -worth)
+            if shape_first or shape_bomb:
+                r += shape_first * (t["rs"].finished[0] == s) + shape_bomb * sum(1 for hs, hm in t["rs"].history if hs == s and hm[0] >= 8)
+            r /= reward_scale
             if mode == "bc":
                 adv, ret = [0.0] * len(tr.S), [r] * len(tr.S)
             else:  # GAE over this player's decisions; reward only at the end (gamma = 1)

@@ -243,4 +243,94 @@ class PlanAgent(HeuristicAgent):
                                                           if s not in obs["finished"]), default=27))
 
 
+_STYLE_DEFAULT = dict(bomb_lead=25.0, bomb_follow=0.0, pass_prob=0.0, overtake_partner=0.0, structure_weight=1.0,
+                      epsilon=0.0, lead_singles=0.0, big_hold=0.5)
+STYLES = {
+    # leads and answers with bombs early, to take and keep control
+    "bomber": dict(bomb_lead=-6.0, bomb_follow=0.7),
+    # passes a lot and waits for a good moment; rarely spends big cards
+    "turtle": dict(pass_prob=0.4, big_hold=0.9),
+    # often plays over its own partner's cards
+    "overtaker": dict(overtake_partner=0.6),
+    # breaks pairs and bombs freely to shed cards fast
+    "breaker": dict(structure_weight=0.15, bomb_lead=10.0),
+    # protects its combinations strongly, even when that is slow
+    "keeper": dict(structure_weight=2.5),
+    # a heuristic player that sometimes plays a random legal move
+    "noisy": dict(epsilon=0.25),
+    # clears low singles first
+    "single_dumper": dict(lead_singles=4.0),
+}
+STYLE_NAMES = ["heuristic", *STYLES, "sprinter", "hoarder"]
+
+
+class StyleAgent(HeuristicAgent):
+    """The heuristic player with a personality (see STYLES). Used as a varied set of training and test opponents."""
+
+    def __init__(self, style: str, seed: int | None = None):
+        super().__init__(seed)
+        self.style = style
+        self.name = style
+        self.p = {**_STYLE_DEFAULT, **STYLES[style]}
+
+    def act(self, obs: dict) -> int:
+        legal = obs["legal"]
+        if self.p["epsilon"] and len(legal) > 1 and self.rng.random() < self.p["epsilon"]:
+            return int(self.rng.integers(len(legal)))
+        return super().act(obs)
+
+    def _lead(self, legal, hand, level, opp_min) -> int:
+        p = self.p
+
+        def cost(m: Move) -> float:
+            c = _strength(m, level) - 0.9 * len(m.cards) + p["structure_weight"] * structure_cost(hand, m, level)
+            if m.combo.is_bomb:
+                c += p["bomb_lead"]
+            if len(m.cards) == 1:
+                c -= p["lead_singles"]
+            if opp_min <= 2 and len(m.cards) <= opp_min:
+                c += 10.0 + 2.0 * (15 - _strength(m, level))
+            return c
+        return min(range(len(legal)), key=lambda i: cost(legal[i]))
+
+    def _follow(self, obs, legal, hand, level, opp_min) -> int:
+        p, seat, table_seat, counts = self.p, obs["seat"], obs["table_seat"], obs["counts"]
+        options = [(i, m) for i, m in enumerate(legal) if not m.is_pass]
+        if not options:
+            return 0
+        if table_seat == partner(seat):
+            if self.rng.random() >= p["overtake_partner"]:
+                return 0
+            return min(options, key=lambda im: (im[1].combo.is_bomb, _strength(im[1], level)))[0]
+        urgent = counts[table_seat] <= 6 or opp_min <= 4
+        if not urgent and self.rng.random() < p["pass_prob"]:
+            return 0
+        plain = [(i, m) for i, m in options if not m.combo.is_bomb]
+        bombs = [(i, m) for i, m in options if m.combo.is_bomb]
+        if bombs and self.rng.random() < p["bomb_follow"]:
+            return min(bombs, key=lambda im: im[1].combo.power())[0]
+        if plain:
+            i, m = min(plain, key=lambda im: _strength(im[1], level) + p["structure_weight"] * structure_cost(hand, im[1], level))
+            cost = p["structure_weight"] * structure_cost(hand, m, level)
+            big = _strength(m, level) >= 13 and counts[table_seat] > 10 and len(hand) > 10
+            if cost < 6.0 and not (big and self.rng.random() < p["big_hold"]):
+                return i
+            if urgent:
+                return i
+        if bombs and (urgent or len(hand) - len(min(bombs, key=lambda im: im[1].combo.power())[1].cards) <= 6):
+            return min(bombs, key=lambda im: (im[1].combo.power(), structure_cost(hand, im[1], level)))[0]
+        return 0
+
+
+def make_style(name: str, seed: int | None = None) -> Agent:
+    """One of STYLE_NAMES: "heuristic", the StyleAgent presets, "sprinter" (follows the fewest-sets plan), "hoarder"."""
+    if name == "heuristic":
+        return HeuristicAgent(seed)
+    if name == "sprinter":
+        return PlanAgent(seed)
+    if name == "hoarder":
+        return HoarderAgent(seed)
+    return StyleAgent(name, seed)
+
+
 AGENTS = {"random": RandomAgent, "heuristic": HeuristicAgent, "hoarder": HoarderAgent, "plan": PlanAgent}

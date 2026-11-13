@@ -3,7 +3,7 @@
   python scripts/evaluate_suite.py --a ppo+ --vs ppo ppo:runs/ppo/v1.pt heuristic --pairs 1000 --procs 10
 
 An agent spec is  KIND[:PATH][,key=value ...]  with KIND one of
-  heuristic, random, dmc, ppo (greedy policy), ppo~ (sampled), ppo+ / search (policy + search)
+  heuristic, random, style:NAME (bomber, turtle, overtaker, breaker, keeper, noisy, single_dumper, sprinter, hoarder), dmc, ppo (greedy policy), ppo~ (sampled), ppo+ / search (policy + search)
 e.g.  ppo+:runs/ppo/model.pt,worlds=64,topk=5,margin=0.1,belief=1.0
 Search keys: worlds, topk, margin, belief (0 = uniform hidden hands, 1 = weight by the belief head),
   eg (use the endgame search once all hands together hold at most this many cards), egworlds, egtopk,
@@ -52,6 +52,9 @@ def factory(spec: str):
         from guandan.rl.dmc import DEFAULT_MODEL, DMCAgent, load_net
         net = load_net(path or DEFAULT_MODEL)
         return lambda seed: DMCAgent(net, seed=seed)
+    if kind == "style":
+        from guandan.agents import make_style
+        return lambda seed: make_style(path, seed)
     from guandan.agents import AGENTS
     return lambda seed: AGENTS[kind](seed=seed)
 
