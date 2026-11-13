@@ -51,6 +51,9 @@
   .cards.hand { flex-wrap: nowrap; align-items: flex-start; gap: 0; overflow-x: auto; padding: 14px 4px 8px; min-height: 90px; }
   .hand .hcol { display: flex; flex-direction: column; flex: none; padding: 0 3px; }
   .hand .hcol .card + .card { margin-top: -48px; }
+  .hand .colsel { height: 14px; margin-bottom: 2px; width: 46px; font-size: 10px; line-height: 14px; text-align: center; border-radius: 7px;
+                  background: rgba(232,197,71,.18); color: #e8c547; cursor: pointer; user-select: none; opacity: .65; }
+  .hand .colsel:hover { opacity: 1; background: rgba(232,197,71,.4); }
   .hand .card { width: 46px; height: 68px; font-size: 16px; flex-direction: row; justify-content: center; align-items: flex-start; padding-top: 3px; box-sizing: border-box; flex: none; }
   .hand .card br { display: none; }
   .hand .card.joker { padding-top: 6px; }
@@ -285,6 +288,14 @@ function renderHand(s) {
     hand.append(gap(ci));
     const colEl = document.createElement("div");
     colEl.className = "hcol";
+    if (mine && !organizing) {   // select the whole column (the cards already picked from it included)
+      const tab = document.createElement("div");
+      tab.className = "colsel";
+      tab.textContent = "全选";
+      tab.title = "选中这一整列";
+      tab.onclick = () => { col.forEach(id => selected.add(id)); render(); };
+      colEl.append(tab);
+    }
     for (const id of shown) {
       const card = cardById.get(id);
       const el = cardEl(card.label, card.wild);
