@@ -34,7 +34,7 @@ from .dmc import DEFAULT_MODEL as DMC_MODEL, REWARD_SCALE, DMCAgent, _device, lo
 from . import fast as fast_rl
 from .features import encode_actions, encode_state
 from .policy import (Actor, Critic, PolicyAgent, encode_oracle, load_policy, padded_log_probs, policy_step,
-                     save_policy, widen_policy)
+                     save_policy, widen_hidden, widen_policy)
 
 torch.set_num_threads(1)
 def style_label(name: str) -> int:
@@ -68,6 +68,7 @@ class PPOConfig:
     style_coef: float = 0.0        # weight of the auxiliary loss for naming the opponent's style (needs labels; see fast.play_batch)
     shape_first: float = 0.0       # extra reward (levels) for the player who goes out first
     shape_bomb: float = 0.0        # extra reward (levels) per bomb a player plays (negative: keeps bombs)
+    widen_hidden: int = 0          # widen the starting networks to this many hidden units (function-preserving)
     p_style: float = 0.0           # share of deals against a scripted style (see agents.STYLES), drawn from `styles`
     styles: list = field(default_factory=list)
     p_runout: float = 0.0          # share of training deals that start from a constructed "saved runout" position
@@ -362,6 +363,10 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
             actor, critic = widen_policy(actor, critic, cfg.version)
             log(f"widened to feature version {cfg.version}: new input columns start at zero weight")
         cfg.version = actor.version
+        if cfg.widen_hidden and cfg.widen_hidden > actor.hidden:
+            actor, critic = widen_hidden(actor, critic, cfg.widen_hidden)
+            cfg.hidden = cfg.widen_hidden
+            log(f"widened the networks to {cfg.widen_hidden} hidden units (same outputs until training uses the new units)")
     else:
         actor, critic = Actor(cfg.hidden, cfg.version), Critic(cfg.hidden, cfg.version)
     actor, critic = actor.to(dev).train(), critic.to(dev).train()

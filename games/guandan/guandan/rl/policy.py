@@ -105,6 +105,44 @@ def widen_policy(actor: Actor, critic: Critic, version: int) -> tuple[Actor, Cri
     return na.eval() if not actor.training else na, nc.eval() if not critic.training else nc
 
 
+def widen_hidden(actor: Actor, critic: Critic, hidden: int) -> tuple[Actor, Critic]:
+    """The same networks with `hidden` units per layer instead of actor.hidden. The new units start with zero outgoing
+    weights, so the widened networks give exactly the same outputs until training uses them (Net2Net-style)."""
+    h0 = actor.hidden
+    assert hidden > h0, "can only widen"
+    na, nc = Actor(hidden, actor.version), Critic(hidden, actor.version)
+    with torch.no_grad():
+        def rows(new: nn.Linear, old: nn.Linear, cols=None):          # new rows keep their fresh init
+            new.weight[:old.out_features, :old.in_features if cols is None else cols] = old.weight[:, :old.in_features if cols is None else cols]
+            new.bias[:old.out_features] = old.bias
+
+        a_o, a_n = actor, na
+        rows(a_n.state[0], a_o.state[0])
+        a_n.state[2].weight[:, h0:] = 0                                # old units ignore the new ones
+        rows(a_n.state[2], a_o.state[2], h0)
+        a_n.action.load_state_dict(a_o.action.state_dict())
+        l_o, l_n = a_o.score[0], a_n.score[0]
+        l_n.weight.zero_()
+        l_n.weight[:, :h0] = l_o.weight[:, :h0]
+        l_n.weight[:, hidden:] = l_o.weight[:, h0:]
+        l_n.bias.copy_(l_o.bias)
+        a_n.score[2].load_state_dict(a_o.score[2].state_dict())
+        for name in ("belief", "style"):
+            n, o = getattr(a_n, name), getattr(a_o, name)
+            n.weight.zero_()
+            n.weight[:, :h0] = o.weight
+            n.bias.copy_(o.bias)
+        c_o, c_n = critic.net, nc.net
+        rows(c_n[0], c_o[0])
+        c_n[2].weight[:, h0:] = 0
+        rows(c_n[2], c_o[2], h0)
+        c_n[4].weight.zero_()
+        c_n[4].weight[:, :h0] = c_o[4].weight
+        c_n[4].bias.copy_(c_o[4].bias)
+        c_n[6].load_state_dict(c_o[6].state_dict())
+    return na.eval() if not actor.training else na, nc.eval() if not critic.training else nc
+
+
 def padded_log_probs(logits: torch.Tensor, seg: torch.Tensor, pos: torch.Tensor, batch: int, width: int):
     """Flat per-move logits -> (batch, width) log-probabilities; padding gets probability 0."""
     pad = logits.new_full((batch, width), -1e9)
