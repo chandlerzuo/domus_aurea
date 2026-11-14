@@ -160,6 +160,14 @@ stopped -- the loss happens earlier, in letting it form or in the race to go out
 helped a little (+0.11 on `scripts/evaluate_runout.py`) but cannot close the gap. Next step needs real games:
 `scripts/find_runouts.py --db <copy of the server's games.db>` lists the finishes and the AI's missed chances.
 
+**Opponent styles (measured).** Scripted style opponents (`agents.STYLES`, `make_style`; all weaker than the model, +1.85 to
++2.9 levels per deal for the model) leave little to exploit: a specialist trained against one style gains only +0.09 to +0.19
+over the general model against it, and loses a little general strength. Strong, varied opponents came from self-play with shaped
+rewards (`--shape-first`, `--shape-bomb`: racer, bomb saver, bomb spender; mild but real differences in bombs played and who
+goes out first). Training against that population plus the scripted styles, with behaviour counters in the state (feature
+version 4) and an auxiliary style-naming head (`--style-coef`), recovered the strength the same mix cost a version-3 control
+(+0.10 ± 0.05) but did not beat the shipped model (+0.01 ± 0.05), on any held-out style either. Not adopted.
+
 **Training the policy toward the search player's choices (tried, no gain).**
 `guandan/rl/distill.py`, `scripts/label_search.py` and `scripts/fit_distill.py` label decisions
 with the search (policy shifted toward the better-looking candidates) and fit the policy to the

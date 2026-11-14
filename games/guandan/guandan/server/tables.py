@@ -103,6 +103,15 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
     return BASE_AGENTS[kind](seed=seed)
 
 
+@lru_cache(maxsize=1)
+def model_id() -> str:
+    """Which AI played: a short hash of the model file plus the search settings. Saved with every deal, so results can be
+    compared between versions (scripts/human_vs_ai.py)."""
+    import hashlib
+    h = hashlib.sha256(MODELS["ppo"].read_bytes()).hexdigest()[:8] if MODELS["ppo"].exists() else "none"
+    return f"{h}/w{SEARCH_WORLDS}k{SEARCH_TOPK}b{SEARCH_BELIEF:g}/eg{ENDGAME_CARDS}"
+
+
 @lru_cache(maxsize=512)
 def hand_split(hand: tuple, level: int) -> list[list[int]]:
     """The player's hand as groups of card ids (fewest sets) -- used by the page's auto-organize option."""
@@ -226,7 +235,7 @@ class Game:
                 "table": self.table_id, "match": self.match_id, "deal_no": m.deals_played + 1,
                 "level": d.level, "team_levels": list(d.team_levels), "level_team": d.level_team,
                 "leader": seat, "hands": [list(h) for h in d.hands], "kinds": list(self.kinds),
-                "names": list(self.names), "humans": sorted(self.humans),
+                "names": list(self.names), "humans": sorted(self.humans), "model": model_id(),
                 "assisted": sorted(s for s in self.humans if self.humans[s]), "moves": [],
                 "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": zh.card_zh(t.card),
                               "returned": zh.card_zh(t.returned) if t.returned is not None else None}
