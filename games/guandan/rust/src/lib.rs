@@ -296,6 +296,8 @@ fn guandan_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("STATE_DIM_V3", features::STATE_DIM_V3)?;
     m.add("ACTION_DIM_V3", features::ACTION_DIM_V3)?;
     m.add("STATE_DIM_V4", features::STATE_DIM_V4)?;
+    m.add("STATE_DIM_V5", features::STATE_DIM_V5)?;
+    m.add("ACTION_DIM_V5", features::ACTION_DIM_V5)?;
     m.add("ORACLE_DIM", features::ORACLE_DIM)?;
     Ok(())
 }

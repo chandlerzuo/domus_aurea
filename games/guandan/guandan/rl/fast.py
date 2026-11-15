@@ -74,16 +74,17 @@ def q_logits(net, S: np.ndarray, A: np.ndarray, n: np.ndarray):
 
 
 class _Traj:
-    __slots__ = ("S", "O", "A", "chosen", "logp", "value")
+    __slots__ = ("S", "O", "A", "chosen", "logp", "value", "sets", "race")
 
     def __init__(self):
         self.S, self.O, self.A, self.chosen, self.logp, self.value = [], [], [], [], [], []
+        self.sets, self.race = [], []      # fewest sets in the player's own hand / in each other hand, at each decision
 
 
 def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, opponents, p_tribute: float,
                lam: float, reward_scale: float, width: int = 64, version: int = 1, match_bonus: float = 0.0,
                p_endgame: float = 0.0, p_runout: float = 0.0, shape_first: float = 0.0,
-               shape_bomb: float = 0.0) -> dict:
+               shape_bomb: float = 0.0, shape_sets: float = 0.0, shape_left: float = 0.0, want_race: bool = False) -> dict:
     """`learner` = (actor, critic); `opponents` = callable(rng) -> ("self"|"heuristic"|"dmc"|"snapshot", net or None).
 
     mode "bc": the heuristic plays all four seats and its choices are recorded (imitation data).
@@ -97,11 +98,17 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
     opponent holds only a bomb / full house / high single and is on lead, and the learner plays the other team.
     `shape_first` / `shape_bomb` add levels of reward to the *player* who goes out first / for each bomb a player
     plays: they make agents with different temperaments (selfish racer, bomb hoarder, bomb spender).
+    `shape_sets` pays that many levels each time a move of the player's own shortens the hand's fewest-sets plan (and charges it
+    for lengthening it); it is potential-based (the potential is zero when the deal ends), so it leaves the best play unchanged and
+    only makes the learning signal denser. `shape_left` charges that many levels per set the player is still holding when the deal
+    ends, which does change the objective: it says that being stuck with sets matters beyond the levels. `want_race` records, at
+    every decision, the other players' fewest-sets counts (targets for the model's race head).
     """
     from .dmc import random_match
 
     actor, critic = learner if learner is not None else (None, None)
-    out = {k: [] for k in ("S", "O", "A", "n", "chosen", "logp", "adv", "ret", "L")}
+    out = {k: [] for k in ("S", "O", "A", "n", "chosen", "logp", "adv", "ret", "L", "R")}
+    track = bool(shape_sets or shape_left or want_race)
     scores_by: dict[str, list] = defaultdict(list)
     tables: list[dict] = []
     started = 0
@@ -180,11 +187,19 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
             r /= reward_scale
             if mode == "bc":
                 adv, ret = [0.0] * len(tr.S), [r] * len(tr.S)
-            else:  # GAE over this player's decisions; reward only at the end (gamma = 1)
-                vals = tr.value + [r]
-                adv, gae = [0.0] * len(tr.S), 0.0
-                for k in reversed(range(len(tr.S))):
-                    gae = vals[k + 1] - vals[k] + lam * gae
+            else:  # GAE over this player's decisions; the deal's result arrives at the last one (gamma = 1)
+                K = len(tr.S)
+                rew = [0.0] * K
+                if shape_sets or shape_left:
+                    h_end = t["rs"].min_sets(s)
+                    for k in range(K - 1):
+                        rew[k] = shape_sets * (tr.sets[k] - tr.sets[k + 1]) / reward_scale
+                    rew[K - 1] = (shape_sets * tr.sets[K - 1] - shape_left * h_end) / reward_scale
+                rew[K - 1] += r
+                vals = tr.value + [0.0]
+                adv, gae = [0.0] * K, 0.0
+                for k in reversed(range(K)):
+                    gae = rew[k] + vals[k + 1] - vals[k] + lam * gae
                     adv[k] = gae
                 ret = [x + v for x, v in zip(adv, tr.value)]
             out["S"] += tr.S
@@ -196,6 +211,8 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
             out["adv"] += adv
             out["ret"] += ret
             out["L"] += [t["label"]] * len(tr.S)
+            if want_race:
+                out["R"] += tr.race
 
     while tables or started < n_deals:
         while len(tables) < width and started < n_deals:
@@ -236,6 +253,11 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
                         tr = t["trajs"][seat]
                         tr.S.append(S[k]), tr.O.append(O[k]), tr.A.append(A[off[k]:off[k] + n[k]])
                         tr.chosen.append(int(idx[k])), tr.logp.append(float(logp[k])), tr.value.append(float(v[k]))
+                        if track:
+                            rs_ = t["rs"]
+                            tr.sets.append(rs_.min_sets(seat))
+                            if want_race:
+                                tr.race.append([rs_.min_sets((seat + o) % 4) / 10.0 for o in (1, 2, 3)])
                 elif key[0] == "dmc":
                     idx, _, _ = sample_rows(q_logits(ts[0]["net"], S, A, n), n, rng, greedy=True)
                 else:  # snapshot policy, sampled
@@ -254,5 +276,7 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
            "n": np.asarray(out["n"], np.int32), "chosen": np.asarray(out["chosen"], np.int64),
            "logp": np.asarray(out["logp"], np.float32), "adv": np.asarray(out["adv"], np.float32),
            "ret": np.asarray(out["ret"], np.float32), "L": np.asarray(out["L"], np.int64)}
+    if want_race:
+        res["R"] = np.asarray(out["R"], np.float32)
     res.update(deals=n_deals, scores_by=dict(scores_by))
     return res

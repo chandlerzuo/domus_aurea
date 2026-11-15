@@ -45,6 +45,7 @@ class Actor(nn.Module):
         self.score = nn.Sequential(nn.Linear(hidden + 256, 256), nn.ReLU(), nn.Linear(256, 1))
         self.belief = nn.Linear(hidden, ORACLE_DIM)
         self.style = nn.Linear(hidden, N_STYLES)    # who is on the other team? (auxiliary: shapes the state embedding)
+        self.race = nn.Linear(hidden, 3)            # the others' fewest sets to go, /10 (auxiliary: how far ahead or behind am I?)
 
     def _score(self, hp: torch.Tensor, ea: torch.Tensor) -> torch.Tensor:
         """score([h, e]) with the first layer split: W [h, e] + b = W_h h + (W_e e + b). `hp` is the
@@ -127,7 +128,7 @@ def widen_hidden(actor: Actor, critic: Critic, hidden: int) -> tuple[Actor, Crit
         l_n.weight[:, hidden:] = l_o.weight[:, h0:]
         l_n.bias.copy_(l_o.bias)
         a_n.score[2].load_state_dict(a_o.score[2].state_dict())
-        for name in ("belief", "style"):
+        for name in ("belief", "style", "race"):
             n, o = getattr(a_n, name), getattr(a_o, name)
             n.weight.zero_()
             n.weight[:, :h0] = o.weight
@@ -163,7 +164,7 @@ def load_policy(path: str | Path, device: str = "cpu", critic: bool = False):
     version = ckpt.get("version", 1)
     actor = Actor(ckpt["hidden"], version)
     res = actor.load_state_dict(ckpt["actor"], strict=False)
-    assert not [k for k in res.missing_keys if not k.startswith("style.")] and not res.unexpected_keys, res   # older files have no style head
+    assert not [k for k in res.missing_keys if not k.startswith(("style.", "race."))] and not res.unexpected_keys, res   # older files have no style head
     actor = actor.to(device).eval()
     if not critic:
         return actor

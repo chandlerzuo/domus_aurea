@@ -75,12 +75,44 @@ def behaviour(history, seat: int, out: np.ndarray) -> None:
             o += cap
 
 
+# Version 5: how good the hand is for finishing, on the state and (for the hand left) after each move: high cards (ace and
+# above, jokers, wilds), low singles and low pairs (value <= 8), bombs. Unary, capped. Mirrors rust/src/features.rs.
+CTRL_CAPS = (8, 6, 6, 4)
+CTRL_DIM = sum(CTRL_CAPS)
+STATE_DIM_V5 = STATE_DIM_V4 + CTRL_DIM
+ACTION_DIM_V5 = ACTION_DIM_V3 + CTRL_DIM
+
+
+def control_features(cards, level: int, out: np.ndarray) -> None:
+    wt = wild_type(level)
+    nr, sj, bj, wild = [0] * 13, 0, 0, 0
+    for c in cards:
+        t = ctype(c)
+        if t == wt:
+            wild += 1
+        elif t == SJ:
+            sj += 1
+        elif t == BJ:
+            bj += 1
+        else:
+            nr[t % 13] += 1
+    val = lambda r: 13 if r == level else r
+    high = sum(nr[r] for r in range(13) if val(r) >= 12) + sj + bj + wild
+    low_singles = sum(1 for r in range(13) if nr[r] == 1 and val(r) <= 8)
+    low_pairs = sum(1 for r in range(13) if nr[r] == 2 and val(r) <= 8)
+    bombs = sum(1 for r in range(13) if nr[r] >= 4) + int(sj == 2 and bj == 2)
+    o = 0
+    for v, cap in zip((high, low_singles, low_pairs, bombs), CTRL_CAPS):
+        out[o:o + min(v, cap)] = 1
+        o += cap
+
+
 def state_dim(version: int = 1) -> int:
-    return STATE_DIM_V4 if version >= 4 else STATE_DIM_V3 if version >= 3 else STATE_DIM_V2 if version >= 2 else STATE_DIM
+    return STATE_DIM_V5 if version >= 5 else STATE_DIM_V4 if version >= 4 else STATE_DIM_V3 if version >= 3 else STATE_DIM_V2 if version >= 2 else STATE_DIM
 
 
 def action_dim(version: int = 1) -> int:
-    return ACTION_DIM_V3 if version >= 3 else ACTION_DIM_V2 if version >= 2 else ACTION_DIM
+    return ACTION_DIM_V5 if version >= 5 else ACTION_DIM_V3 if version >= 3 else ACTION_DIM_V2 if version >= 2 else ACTION_DIM
 
 
 def card_vec(cards, out: np.ndarray | None = None) -> np.ndarray:
@@ -146,6 +178,9 @@ def encode_state(obs: dict, version: int = 1) -> np.ndarray:
     if version >= 4:
         behaviour(obs["history"], seat, x[STATE_DIM_V3:STATE_DIM_V4])
         o += STYLE_DIM
+    if version >= 5:
+        control_features(hand, obs["level"], x[STATE_DIM_V4:STATE_DIM_V5])
+        o += CTRL_DIM
     assert o == state_dim(version)
     return x
 
@@ -208,6 +243,11 @@ def encode_action(m: Move, hand_size: int, level: int, version: int = 1, hand=No
         after = planner.min_sets(st.minus(m.cards, level))
         x[ACTION_DIM_V2:ACTION_DIM_V2 + min(PLAN_CAP, after)] = 1
         x[ACTION_DIM_V2 + PLAN_CAP + (0 if after - now <= -1 else 1 if after == now else 2 if after - now == 1 else 3)] = 1
+    if version >= 5:
+        rem = list(hand)
+        for c in m.cards:
+            rem.remove(c)
+        control_features(rem, level, x[ACTION_DIM_V3:ACTION_DIM_V5])
     return x
 
 

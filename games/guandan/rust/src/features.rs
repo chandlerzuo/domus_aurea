@@ -32,12 +32,38 @@ pub const STYLE_CAPS: [usize; 6] = [12, 10, 3, 8, 3, 8];
 pub const STYLE_DIM: usize = 3 * (12 + 10 + 3 + 8 + 3 + 8);
 pub const STATE_DIM_V4: usize = STATE_DIM_V3 + STYLE_DIM;
 
+// Version 5: how good the hand is for finishing (see features.py `control_features`), on the state and after each move.
+pub const CTRL_CAPS: [usize; 4] = [8, 6, 6, 4];
+pub const CTRL_DIM: usize = 8 + 6 + 6 + 4;
+pub const STATE_DIM_V5: usize = STATE_DIM_V4 + CTRL_DIM;
+pub const ACTION_DIM_V5: usize = ACTION_DIM_V3 + CTRL_DIM;
+
+/// High cards, low singles, low pairs and bombs in a set of cards (all unary).
+fn control_features(cards: &[u8], level: u8, out: &mut [u8]) {
+    let wt = wild_type(level);
+    let (mut nr, mut sj, mut bj, mut wild) = ([0usize; 13], 0usize, 0usize, 0usize);
+    for &c in cards {
+        let t = ctype(c);
+        if t == wt { wild += 1 } else if t == SJ { sj += 1 } else if t == BJ { bj += 1 } else { nr[(t % 13) as usize] += 1 }
+    }
+    let val = |r: usize| -> i32 { if r == level as usize { 13 } else { r as i32 } };
+    let high: usize = (0..13).filter(|&r| val(r) >= 12).map(|r| nr[r]).sum::<usize>() + sj + bj + wild;
+    let low_singles = (0..13).filter(|&r| nr[r] == 1 && val(r) <= 8).count();
+    let low_pairs = (0..13).filter(|&r| nr[r] == 2 && val(r) <= 8).count();
+    let bombs = (0..13).filter(|&r| nr[r] >= 4).count() + (sj == 2 && bj == 2) as usize;
+    let mut o = 0;
+    for (v, cap) in [high, low_singles, low_pairs, bombs].iter().zip(CTRL_CAPS.iter()) {
+        thermometer(&mut out[o..o + cap], *v, *cap);
+        o += cap;
+    }
+}
+
 pub fn state_dim(version: u8) -> usize {
-    if version >= 4 { STATE_DIM_V4 } else if version >= 3 { STATE_DIM_V3 } else if version >= 2 { STATE_DIM_V2 } else { STATE_DIM }
+    if version >= 5 { STATE_DIM_V5 } else if version >= 4 { STATE_DIM_V4 } else if version >= 3 { STATE_DIM_V3 } else if version >= 2 { STATE_DIM_V2 } else { STATE_DIM }
 }
 
 pub fn action_dim(version: u8) -> usize {
-    if version >= 3 { ACTION_DIM_V3 } else if version >= 2 { ACTION_DIM_V2 } else { ACTION_DIM }
+    if version >= 5 { ACTION_DIM_V5 } else if version >= 3 { ACTION_DIM_V3 } else if version >= 2 { ACTION_DIM_V2 } else { ACTION_DIM }
 }
 
 /// The acting player's hand decomposition, shared by all the moves of one decision.
@@ -199,6 +225,9 @@ pub fn encode_state(d: &Deal, seat: usize, version: u8, out: &mut [u8]) {
     if version >= 4 {
         behaviour(&d.history, seat, &mut out[STATE_DIM_V3..STATE_DIM_V4]);
     }
+    if version >= 5 {
+        control_features(&d.hands[seat], d.level, &mut out[STATE_DIM_V4..STATE_DIM_V5]);
+    }
 }
 
 pub fn encode_action(m: &Move, hand: &[u8], level: u8, version: u8, out: &mut [u8], plan: Option<&mut PlanCtx>) {
@@ -226,6 +255,15 @@ pub fn encode_action(m: &Move, hand: &[u8], level: u8, version: u8, out: &mut [u
         thermometer(&mut out[at..at + PLAN_CAP], after as usize, PLAN_CAP);
         let class = match after - ctx.now as i32 { i32::MIN..=-1 => 0, 0 => 1, 1 => 2, _ => 3 };
         out[at + PLAN_CAP + class] = 1;
+    }
+    if version >= 5 {
+        let mut rem: Vec<u8> = hand.to_vec();
+        for &c in &m.cards {
+            if let Some(i) = rem.iter().position(|&x| x == c) {
+                rem.remove(i);
+            }
+        }
+        control_features(&rem, level, &mut out[ACTION_DIM_V3..ACTION_DIM_V5]);
     }
 }
 
