@@ -168,6 +168,17 @@ goes out first). Training against that population plus the scripted styles, with
 version 4) and an auxiliary style-naming head (`--style-coef`), recovered the strength the same mix cost a version-3 control
 (+0.10 ± 0.05) but did not beat the shipped model (+0.01 ± 0.05), on any held-out style either. Not adopted.
 
+**What the recorded human games show (140 unassisted deals, one human with an AI partner against two AIs; `scripts/analyse_failures.py`).**
+The human's team wins 58% (+0.28 +- 0.19 levels per deal, not yet significant). Scoring every decision with the real hidden hands
+(rollouts of the model's own play), the AIs' mean regret is no higher than the person's (0.73-0.78 against 0.85), so there is no
+sign of frequent single-move blunders; the measure favours model-like moves, so this is a weak statement. What does show:
+(1) the AI team loses by a tempo: in the 81 lost deals its surviving seats held 2.8 sets (3.4 cards) each, half of them loose
+singles, a quarter of the sets low singles (value <= 8), and almost never a bomb (0.04 per seat), i.e. the residuals are low,
+unleadable cards, not hoarded strength. (2) People pass more (46% of decisions against 39-41%) and lead more tricks (3.3 per deal
+against 2.9 for their AI partner), so they hold control longer. (3) The AI's costliest hindsight decisions are passes where a bomb
+would have taken the lead (about 1 in 6 passes); people have the same pattern, so it is not AI-specific. (4) Multi-card choices
+(full house, straight, triple, straight flush) carry more regret for the AIs than for the person, on small samples.
+
 **Training the policy toward the search player's choices (tried, no gain).**
 `guandan/rl/distill.py`, `scripts/label_search.py` and `scripts/fit_distill.py` label decisions
 with the search (policy shifted toward the better-looking candidates) and fit the policy to the
