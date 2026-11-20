@@ -50,18 +50,25 @@ def sample_world(obs: dict, rng: np.random.Generator, version: int, bel: np.ndar
     hands[seat] = [int(c) for c in obs["hand"]]
     seen = set(obs["hand"]) | {c for p in obs["played"] for c in p}
     unseen = [c for c in range(N_CARDS) if c not in seen]
+    # Public knowledge from the tribute: who was given which card (and who got a card back). A known card that has not been
+    # played yet is in that player's hand in every sampled world.
+    fixed: dict[int, list[int]] = {}
+    for holder, card in obs.get("known") or ():
+        if holder != seat and card in unseen:
+            fixed.setdefault(holder, []).append(int(card))
+            unseen.remove(card)
     rng.shuffle(unseen)
     others = [(seat + 1 + k) % 4 for k in range(3)]
     if bel is None or power <= 0:
         at = 0
         for s in others:
-            n = obs["counts"][s]
-            hands[s] = [int(c) for c in unseen[at:at + n]]
+            n = obs["counts"][s] - len(fixed.get(s, ()))
+            hands[s] = fixed.get(s, []) + [int(c) for c in unseen[at:at + n]]
             at += n
     else:
         w = (np.asarray(bel) + 1e-3) ** power          # (3, N_TYPES)
-        cap = [obs["counts"][s] for s in others]
-        out: list = [[], [], []]
+        cap = [obs["counts"][s] - len(fixed.get(s, ())) for s in others]
+        out: list = [list(fixed.get(s, ())) for s in others]
         u = rng.random(len(unseen))
         for c, r in zip(unseen, u):
             t = ctype(c)
@@ -109,7 +116,7 @@ def rollout(sims: list, actor, version: int, rng: np.random.Generator) -> None:
 
 
 def search_values(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, topk: int = 3,
-                  min_prob: float = 0.03, belief: float = 0.0):
+                  min_prob: float = 0.03, belief: float = 0.0, belief_net=None):
     """Candidate moves, the policy's probabilities over all legal moves, and each candidate's
     estimated result (levels for the player's team). `None` when there is only one candidate."""
     v = actor.version
@@ -118,7 +125,13 @@ def search_values(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, 
     cand = [order[0]] + [j for j in order[1:topk] if p[j] >= min_prob]
     if len(cand) < 2:
         return None
-    bel = belief_probs(actor, obs) if belief > 0 else None
+    bel = None
+    if belief > 0:
+        if belief_net is not None:
+            from .belief import belief_from_net
+            bel = belief_from_net(belief_net, obs)       # the dedicated hidden-hand guesser (rl/belief.py)
+        else:
+            bel = belief_probs(actor, obs)
     ws = [sample_world(obs, rng, v, bel, belief) for _ in range(worlds)]
     sims, owner = [], []
     for w in ws:
@@ -171,10 +184,10 @@ def improved_policy(p: np.ndarray, cand: list[int], val: np.ndarray, tau: float)
 
 
 def search_choice(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, topk: int = 3,
-                  min_prob: float = 0.03, margin: float = 0.0, belief: float = 0.0) -> tuple[int, dict]:
+                  min_prob: float = 0.03, margin: float = 0.0, belief: float = 0.0, belief_net=None) -> tuple[int, dict]:
     """Index into obs["legal"] and a report: candidates with their policy probability and
     estimated result (levels for the player's team)."""
-    res = search_values(actor, obs, rng, worlds, topk, min_prob, belief)
+    res = search_values(actor, obs, rng, worlds, topk, min_prob, belief, belief_net)
     if res is None:
         _, _, p = policy_step(actor, encode_state(obs, actor.version), encode_actions(obs, actor.version),
                               rng, greedy=True)
@@ -193,7 +206,7 @@ class SearchAgent(Agent):
 
     def __init__(self, actor, seed: int | None = None, worlds: int = 16, topk: int = 3, margin: float = 0.0,
                  belief: float = 0.0, endgame_cards: int = 0, endgame_worlds: int = 128, endgame_topk: int = 99,
-                 solve_cards: int = 0, solve_worlds: int = 16, solve_budget: int = 100_000, plan_sets: int = 0):
+                 solve_cards: int = 0, solve_worlds: int = 16, solve_budget: int = 100_000, plan_sets: int = 0, belief_net=None):
         super().__init__(seed)
         self.actor, self.worlds, self.topk, self.margin, self.belief = actor, worlds, topk, margin, belief
         # With few cards left (all hands together), look at every legal move with many more sampled hands: the
@@ -204,6 +217,7 @@ class SearchAgent(Agent):
         # The endgame search also switches on when the player's own hand splits into at most this many sets, however many cards
         # are left on the table: choosing the order in which to lead the last few sets is where people beat the model.
         self.plan_sets = plan_sets
+        self.belief_net = belief_net      # a rl.belief.BeliefNet used instead of the policy's belief head when sampling hidden hands
 
     def act(self, obs: dict) -> int:
         legal = obs["legal"]
@@ -222,10 +236,10 @@ class SearchAgent(Agent):
             near_done = min_sets(obs["hand"], obs["level"]) <= self.plan_sets
         if sum(obs["counts"]) <= self.endgame_cards or near_done:
             i, report = search_choice(self.actor, obs, self.rng, self.endgame_worlds, min(len(legal), self.endgame_topk), min_prob=0.0,
-                                      margin=self.margin, belief=self.belief)
+                                      margin=self.margin, belief=self.belief, belief_net=self.belief_net)
         else:
             i, report = search_choice(self.actor, obs, self.rng, self.worlds, self.topk, margin=self.margin,
-                                      belief=self.belief)
+                                      belief=self.belief, belief_net=self.belief_net)
         if report["searched"]:
             self.info = {"search": {f"{legal[j].combo} x{len(legal[j].cards)}": {"p": pr, "value": v}
                                     for j, pr, v in report["cands"]}}

@@ -30,9 +30,14 @@ def main():
     ap.add_argument("--db", required=True)
     ap.add_argument("--model", default="runs/ppo/model.pt")
     ap.add_argument("--max-deals", type=int, default=120)
+    ap.add_argument("--belief-model", help="score a dedicated hidden-hand guesser (rl/belief.py) instead of the policy's belief head")
     a = ap.parse_args()
     actor = load_policy(a.model)
     v = actor.version
+    bnet = None
+    if a.belief_model:
+        from guandan.rl.belief import load_belief
+        bnet = load_belief(a.belief_model)
     recs = [json.loads(r) for (r,) in sqlite3.connect(a.db).execute("SELECT record FROM deals ORDER BY id")][-a.max_deals:]
     stats = collections.defaultdict(lambda: [0.0, 0.0, 0, 0.0, 0.0])      # stage -> [sum log p, top-1 hits, n cards, same for the counts-only guess]
     for rec in recs:
@@ -41,8 +46,11 @@ def main():
             seat = d.to_act
             obs = d.observation(seat)
             with torch.no_grad():
-                hs = actor.state(torch.from_numpy(encode_state(obs, v)).float()[None])
-                prob = torch.sigmoid(actor.belief(hs))[0].numpy().reshape(3, -1)[:, 0::2]       # (3 others, 54 types): holds at least one copy
+                if bnet is not None:
+                    prob = torch.sigmoid(bnet(torch.from_numpy(encode_state(obs, bnet.version)).float()[None]))[0].numpy().reshape(3, -1)[:, 0::2]
+                else:
+                    hs = actor.state(torch.from_numpy(encode_state(obs, v)).float()[None])
+                    prob = torch.sigmoid(actor.belief(hs))[0].numpy().reshape(3, -1)[:, 0::2]       # (3 others, 54 types): holds at least one copy
             hidden = [(k, c) for k in range(3) for c in d.hands[(seat + 1 + k) % 4]]
             stage = "61+ cards on the table" if sum(map(len, d.hands)) > 60 else "31-60" if sum(map(len, d.hands)) > 30 else "<=30"
             sizes = np.array([len(d.hands[(seat + 1 + k) % 4]) for k in range(3)], dtype=float) + 1e-9
