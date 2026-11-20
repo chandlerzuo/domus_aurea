@@ -18,7 +18,7 @@
   .hidden { display: none !important; }
   .banner { background: #e8c547; color: #111; padding: 6px 12px; border-radius: 6px; font-weight: 600; }
   /* lobby */
-  #lobby { max-width: 900px; margin: 24px auto; padding: 0 12px; }
+  #lobby, #player { max-width: 900px; margin: 24px auto; padding: 0 12px; }
   .tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
   .tcard { background: #0a2a20; border-radius: 8px; padding: 16px; }
   .tcard h2 { margin: 0 0 8px; }
@@ -95,10 +95,24 @@
 <div id="lobby">
   <p class="meta">在空桌入座即成为桌主：可以用 AI 补满空位，也可以等朋友入座，然后开始对局。座位先到先得。
     也可以观战任意一桌，从某一位玩家的视角看牌——只能看到这位玩家的手牌。</p>
+  <h3>排行榜 <span class="meta" id="boardNote">（近 7 天，按每局平均得分）</span></h3>
+  <table class="list" id="boardTable"><thead><tr><th>名次</th><th>玩家</th><th>局数</th><th>平均得分</th><th>头游</th><th>二游</th><th>三游</th><th>末游</th></tr></thead>
+    <tbody id="board"></tbody></table>
+  <h3>牌桌</h3>
   <div class="tables" id="tables"></div>
   <h3>最近的牌局</h3>
   <table class="list"><thead><tr><th>牌局</th><th>桌号</th><th>南北方得分</th><th>真人玩家</th><th>使用 AI 提示</th><th></th></tr></thead>
     <tbody id="recent"></tbody></table>
+</div>
+
+<div id="player" class="hidden">
+  <h2 id="pName"></h2>
+  <p class="meta" id="pNote"></p>
+  <table class="list"><thead><tr><th></th><th>局数</th><th>平均得分</th><th>头游</th><th>二游</th><th>三游</th><th>末游</th></tr></thead><tbody id="pStats"></tbody></table>
+  <h3>每天（近 14 天）</h3>
+  <table class="list"><thead><tr><th>日期</th><th>局数</th><th>平均得分</th></tr></thead><tbody id="pDays"></tbody></table>
+  <h3>最近的牌局</h3>
+  <table class="list"><thead><tr><th>时间</th><th>牌局</th><th>得分</th><th>名次</th><th>队友</th><th>对手</th><th></th></tr></thead><tbody id="pDeals"></tbody></table>
 </div>
 
 <div id="game" class="hidden">
@@ -360,7 +374,7 @@ function cardsRow(labels, cls = "cards mini", level = null) {
 }
 
 function show(view) {
-  for (const v of ["lobby", "game", "replay"]) $(v).classList.toggle("hidden", v !== view);
+  for (const v of ["lobby", "game", "replay", "player"]) $(v).classList.toggle("hidden", v !== view);
   clearInterval(poll);
   poll = null;
 }
@@ -381,9 +395,77 @@ async function openLobby() {
   $("where").textContent = "大厅";
   const refresh = async () => {
     try { lobbyData = await api("api/lobby"); renderLobby(); } catch (e) { setError(e.message); }
+    try { renderBoard(await api("api/leaderboard")); } catch (e) { /* the ranking is optional */ }
   };
   await refresh();
   poll = setInterval(refresh, 3000);
+}
+
+// ---- ranking and player pages ------------------------------------------------------------------------------
+
+const pct = x => (100 * x).toFixed(1) + "%";
+const signed = x => (x > 0 ? "+" : "") + x.toFixed(2);
+const playerHash = (ai, name) => `player-${ai ? 1 : 0}-${encodeURIComponent(name)}`;
+
+function renderBoard(data) {
+  $("boardNote").textContent = `（近 ${data.days} 天，按每局平均得分；至少 ${data.min_games} 局才上榜；AI 按版本计）`;
+  const tb = $("board");
+  tb.replaceChildren();
+  if (!data.players.length) {
+    const tr = document.createElement("tr");
+    const td = text("td", "还没有玩家满足条件。");
+    td.colSpan = 8;
+    tr.append(td);
+    tb.append(tr);
+    return;
+  }
+  for (const p of data.players) {
+    const tr = document.createElement("tr");
+    const a = text("a", p.name);
+    a.onclick = () => window.open("#" + playerHash(p.ai, p.name), "_blank");
+    if (p.ai && p.model) a.title = "AI 版本：" + p.model;
+    const td = document.createElement("td");
+    td.append(a);
+    tr.append(text("td", p.rank), td, text("td", p.games), text("td", signed(p.avg)), ...p.places.map(x => text("td", pct(x))));
+    tb.append(tr);
+  }
+}
+
+async function openPlayer(ai, name) {
+  route = { view: "player" };
+  show("player");
+  $("where").textContent = "玩家";
+  $("pName").textContent = name;
+  document.title = name + " · 掼蛋";
+  let d;
+  try { d = await api(`api/player?ai=${ai ? 1 : 0}&name=${encodeURIComponent(name)}`); } catch (e) { setError(e.message); return; }
+  $("pNote").textContent = d.ai ? "AI 玩家（按模型版本统计；得分为本方队伍这一局升降的级数）" : "得分为本方队伍这一局升降的级数（赢为正，输为负）";
+  const stats = $("pStats");
+  stats.replaceChildren();
+  for (const [label, s] of [["近 7 天", d.week], ["全部", d.total]]) {
+    const tr = document.createElement("tr");
+    tr.append(text("td", label), text("td", s.games), text("td", s.games ? signed(s.avg) : "-"), ...s.places.map(x => text("td", s.games ? pct(x) : "-")));
+    stats.append(tr);
+  }
+  const days = $("pDays");
+  days.replaceChildren();
+  for (const x of d.days) {
+    const tr = document.createElement("tr");
+    tr.append(text("td", x.day), text("td", x.games), text("td", signed(x.avg)));
+    days.append(tr);
+  }
+  const deals = $("pDeals");
+  deals.replaceChildren();
+  for (const x of d.deals) {
+    const tr = document.createElement("tr");
+    const link = text("a", "回放");
+    link.onclick = () => window.open(`#replay-${x.deal}`, "_blank");
+    const td = document.createElement("td");
+    td.append(link);
+    tr.append(text("td", new Date(x.time * 1000).toLocaleString()), text("td", `${x.table} 号桌 第 ${x.deal_no} 局`), text("td", signed(x.points)),
+              text("td", ["头游", "二游", "三游", "末游"][x.place - 1]), text("td", x.partner.join("、") || "-"), text("td", x.opponents.join("、") || "-"), td);
+    deals.append(tr);
+  }
 }
 
 function renderLobby() {
@@ -784,8 +866,9 @@ $("rLast").onclick = () => { rstep = rec.moves.length; renderReplay(); };
 
 function boot() {
   const h = location.hash;
-  const r = h.match(/^#replay-(\d+)$/), w = h.match(/^#watch-(\d+)-([0-3])$/), t = h.match(/^#table-(\d+)$/);
-  if (r) openReplay(+r[1]);
+  const r = h.match(/^#replay-(\d+)$/), w = h.match(/^#watch-(\d+)-([0-3])$/), t = h.match(/^#table-(\d+)$/), pl = h.match(/^#player-([01])-(.+)$/);
+  if (pl) openPlayer(pl[1] === "1", decodeURIComponent(pl[2]));
+  else if (r) openReplay(+r[1]);
   else if (w) openTable(+w[1], +w[2]);
   else if (t) openTable(+t[1], 0);   // your own seat (the token in this tab decides which)
   else openLobby();

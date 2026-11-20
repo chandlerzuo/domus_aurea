@@ -26,6 +26,7 @@ from .tables import Lobby, agent_kinds
 from .zh import error_zh
 
 STATIC = Path(__file__).parent / "static"
+LEADERBOARD_MIN_GAMES = 5   # a player needs this many deals in the last 7 days to be ranked
 TAILSCALE = ipaddress.ip_network("100.64.0.0/10")
 TABLES = 10  # see docs/DEPLOY.md: capacity estimate
 
@@ -99,6 +100,14 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["api", "lobby"] and method == "GET":
             return self._json(200, {"tables": [t.summary() for t in lobby.tables], "agents": agent_kinds(),
                                     "recent": lobby.store.deals(limit=20)})
+        if parts == ["api", "leaderboard"] and method == "GET":
+            return self._json(200, {"days": 7, "min_games": LEADERBOARD_MIN_GAMES,
+                                    "players": lobby.store.leaderboard(days=7, limit=10, min_games=LEADERBOARD_MIN_GAMES)})
+        if parts == ["api", "player"] and method == "GET":
+            name = query.get("name", "")
+            if not name or len(name) > 80:
+                raise ValueError("name required")
+            return self._json(200, lobby.store.player(name, query.get("ai") == "1"))
         if parts == ["api", "deals"] and method == "GET":
             return self._json(200, lobby.store.deals(match_id=query.get("match"), limit=100))
         if len(parts) >= 3 and parts[:2] == ["api", "deal"]:

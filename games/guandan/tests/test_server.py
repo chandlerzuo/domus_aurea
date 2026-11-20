@@ -175,3 +175,11 @@ def test_default_ai_is_the_search_player_when_available():
 def test_server_offers_a_single_ai():
     from guandan.server.tables import agent_kinds, default_ai
     assert agent_kinds() == [default_ai()]
+
+
+def test_leaderboard_and_player_endpoints(base):
+    code, board = call(base, "/api/leaderboard")
+    assert code == 200 and board["days"] == 7 and board["players"] == []
+    code, p = call(base, "/api/player?ai=0&name=Nobody")
+    assert code == 200 and p["total"]["games"] == 0 and p["deals"] == []
+    assert call(base, "/api/player?ai=0")[0] == 400
