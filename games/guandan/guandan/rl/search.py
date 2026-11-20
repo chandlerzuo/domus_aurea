@@ -193,7 +193,7 @@ class SearchAgent(Agent):
 
     def __init__(self, actor, seed: int | None = None, worlds: int = 16, topk: int = 3, margin: float = 0.0,
                  belief: float = 0.0, endgame_cards: int = 0, endgame_worlds: int = 128, endgame_topk: int = 99,
-                 solve_cards: int = 0, solve_worlds: int = 16, solve_budget: int = 100_000):
+                 solve_cards: int = 0, solve_worlds: int = 16, solve_budget: int = 100_000, plan_sets: int = 0):
         super().__init__(seed)
         self.actor, self.worlds, self.topk, self.margin, self.belief = actor, worlds, topk, margin, belief
         # With few cards left (all hands together), look at every legal move with many more sampled hands: the
@@ -201,6 +201,9 @@ class SearchAgent(Agent):
         self.endgame_cards, self.endgame_worlds, self.endgame_topk = endgame_cards, endgame_worlds, endgame_topk
         # With very few cards left, solve sampled worlds exactly instead of playing them out with the policy.
         self.solve_cards, self.solve_worlds, self.solve_budget = solve_cards, solve_worlds, solve_budget
+        # The endgame search also switches on when the player's own hand splits into at most this many sets, however many cards
+        # are left on the table: choosing the order in which to lead the last few sets is where people beat the model.
+        self.plan_sets = plan_sets
 
     def act(self, obs: dict) -> int:
         legal = obs["legal"]
@@ -213,7 +216,11 @@ class SearchAgent(Agent):
                 self.info = {"solved": {f"{legal[j].combo} x{len(legal[j].cards)}": {"value": round(float(x), 2)}
                                         for j, x in enumerate(mean)}}
                 return i
-        if sum(obs["counts"]) <= self.endgame_cards:
+        near_done = False
+        if self.plan_sets:
+            from .plan import min_sets
+            near_done = min_sets(obs["hand"], obs["level"]) <= self.plan_sets
+        if sum(obs["counts"]) <= self.endgame_cards or near_done:
             i, report = search_choice(self.actor, obs, self.rng, self.endgame_worlds, min(len(legal), self.endgame_topk), min_prob=0.0,
                                       margin=self.margin, belief=self.belief)
         else:

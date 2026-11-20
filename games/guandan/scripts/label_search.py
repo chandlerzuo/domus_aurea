@@ -21,9 +21,13 @@ if __name__ == "__main__":
     ap.add_argument("--worlds", type=int, default=d.worlds)
     ap.add_argument("--topk", type=int, default=d.topk)
     ap.add_argument("--label-prob", type=float, default=d.label_prob)
+    ap.add_argument("--max-sets", type=int, default=0, help="only label decisions where the own hand splits into at most this many sets")
+    ap.add_argument("--lead-only", action="store_true")
+    ap.add_argument("--min-prob", type=float, default=d.min_prob)
     ap.add_argument("--workers", type=int, default=0)
     ap.add_argument("--seed", type=int, default=1)
     a = ap.parse_args()
-    cfg = DistillConfig(worlds=a.worlds, topk=a.topk, label_prob=a.label_prob, labels_per_round=a.labels,
+    cfg = DistillConfig(worlds=a.worlds, topk=a.topk, label_prob=a.label_prob, labels_per_round=a.labels, max_sets=a.max_sets,
+                        lead_only=a.lead_only, min_prob=a.min_prob,
                         workers=a.workers, seed=a.seed)
     label_dataset(cfg, a.teacher, a.out, a.chunks, log=lambda s: print(s, flush=True))

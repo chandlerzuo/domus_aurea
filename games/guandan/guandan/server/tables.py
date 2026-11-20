@@ -49,6 +49,7 @@ SEARCH_BELIEF = float(os.environ.get("GUANDAN_SEARCH_BELIEF", "1.0"))   # 0 = un
 ENDGAME_CARDS = int(os.environ.get("GUANDAN_ENDGAME_CARDS", "28"))
 ENDGAME_WORLDS = int(os.environ.get("GUANDAN_ENDGAME_WORLDS", "64"))
 ENDGAME_TOPK = int(os.environ.get("GUANDAN_ENDGAME_TOPK", "6"))
+PLAN_SETS = int(os.environ.get("GUANDAN_PLAN_SETS", "0"))   # endgame search also when the own hand is this few sets (0 = off)
 IDLE_SECONDS = 90
 TURN_SECONDS = 5 * 60
 NEXT_DEAL_SECONDS = 45   # a finished deal moves on by itself after this long
@@ -97,7 +98,7 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
         from ..rl.search import SearchAgent
         return SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN,
                            belief=SEARCH_BELIEF, endgame_cards=ENDGAME_CARDS, endgame_worlds=ENDGAME_WORLDS,
-                           endgame_topk=ENDGAME_TOPK)
+                           endgame_topk=ENDGAME_TOPK, plan_sets=PLAN_SETS)
     if kind not in BASE_AGENTS:
         raise ValueError(f"unknown agent {kind!r}")
     return BASE_AGENTS[kind](seed=seed)

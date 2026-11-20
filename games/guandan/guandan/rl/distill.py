@@ -27,6 +27,7 @@ from ..agents import HeuristicAgent
 from .dmc import _device, random_match
 from .features import encode_actions, encode_state
 from .policy import encode_oracle, load_policy, padded_log_probs, policy_step, save_policy
+from .plan import min_sets
 from .search import improved_policy, search_values
 
 torch.set_num_threads(1)
@@ -38,6 +39,10 @@ class DistillConfig:
     topk: int = 4
     tau: float = 0.5            # lower = trust the search more (values are in levels)
     label_prob: float = 0.4     # share of multi-move decisions that get a search label
+    max_sets: int = 0           # if > 0, only decisions where the player's own hand splits into at most this many sets are labelled
+    lead_only: bool = False     # ... and only leads
+    belief: float = 1.0         # weight the sampled hidden hands by the belief head (see search.sample_world)
+    min_prob: float = 0.03      # candidates below this policy probability are not searched (0 = every move up to topk)
     labels_per_round: int = 100_000
     deals_per_task: int = 6
     p_tribute: float = 0.75
@@ -86,7 +91,10 @@ def label_task(seed: int, latest: tuple[str, int]) -> dict:
             if len(legal) == 1:
                 d.play(legal[0])
                 continue
-            res = search_values(actor, obs, rng, cfg.worlds, cfg.topk) if rng.random() < cfg.label_prob else None
+            wanted = rng.random() < cfg.label_prob
+            if wanted and cfg.max_sets:
+                wanted = min_sets(obs["hand"], obs["level"]) <= cfg.max_sets and (obs["leading"] or not cfg.lead_only)
+            res = search_values(actor, obs, rng, cfg.worlds, cfg.topk, cfg.min_prob, cfg.belief) if wanted else None
             if res is None:
                 _, _, p = policy_step(actor, encode_state(obs, v), encode_actions(obs, v), rng)
                 d.play(legal[int(rng.choice(len(p), p=p / p.sum()))])
