@@ -56,6 +56,9 @@ PLAN_SETS = int(os.environ.get("GUANDAN_PLAN_SETS", "0"))   # endgame search als
 IDLE_SECONDS = 90
 TURN_SECONDS = 5 * 60
 NEXT_DEAL_SECONDS = 45   # a finished deal moves on by itself after this long
+# A person who has no move except passing is passed automatically after this many seconds (so they can see it happen);
+# a negative value turns that off.
+AUTO_PASS_SECONDS = float(os.environ.get("GUANDAN_AUTO_PASS_SECONDS", "1.0"))
 _NETS: dict = {}
 _NETS_LOCK = threading.Lock()
 
@@ -293,6 +296,18 @@ class Game:
         obs = d.observation(d.to_act)
         self._apply(obs["legal"][self.agents[d.to_act].act(obs)])
 
+    def only_pass_left(self) -> bool:
+        """It is a person's turn and passing is their only legal move (nothing in their hand beats the table)."""
+        if self.phase() != "human_turn":
+            return False
+        legal = self.deal.legal()
+        return len(legal) == 1 and legal[0].is_pass
+
+    def auto_pass(self) -> None:
+        d = self.deal
+        self.log.append(f"{self.names[d.to_act]}：没有能出的牌，自动不出")
+        self._apply(d.legal()[0])
+
     def play(self, seat: int, cards: list[int]) -> None:
         if self.phase() != "human_turn" or self.deal.to_act != seat:
             raise ValueError("not your turn")
@@ -316,7 +331,8 @@ class Game:
         seats = [{"seat": s, "name": self.names[s], "kind": self.kinds[s], "human": s in self.humans,
                   "cards_left": len(d.hands[s]), "to_act": s == d.to_act and not d.done,
                   "place": d.finished.index(s) + 1 if s in d.finished else None,
-                  "last": self.trick.get(s)} for s in range(4)]
+                  # only the plays of the current round: once a round is over and nobody has led the next one, show none
+                  "last": None if d.leading else self.trick.get(s)} for s in range(4)]
         out = {
             "phase": phase, "view_seat": seat, "as_player": as_player, "match": self.match_id,
             "waiting_on": self.waiting_on(), "level": RANKS[d.level],
@@ -464,6 +480,8 @@ class Table:
                 g.step()
                 while ai_delay <= 0 and g.phase() == "ai_turn":  # tests / benchmarks: no pacing
                     g.step()
+            elif (ph == "human_turn" and 0 <= AUTO_PASS_SECONDS <= now - g.last_action and g.only_pass_left()):
+                g.auto_pass()
             elif ph == "deal_over" and now - g.last_action > NEXT_DEAL_SECONDS:
                 g.next_deal()
 

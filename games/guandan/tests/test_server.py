@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -203,3 +204,65 @@ def test_two_ai_variants_are_assigned_and_recorded(monkeypatch):
         monkeypatch.setattr(T, "ai_variants", lambda v=v: [v])
         ag = T.make_agent("ppo+", seed=1)
         assert ag.variant == v and 0 <= ag.act(obs) < len(obs["legal"])
+
+
+def _table_with_a_stuck_player(monkeypatch):
+    """A running table where seat 0 (a person) is to act, a pair of aces is on the table and nothing in their hand beats it."""
+    import tempfile
+    import time
+    from guandan.combos import Combo, Kind, Move
+    from guandan.server import tables as T
+    monkeypatch.setattr(T, "agent_kinds", lambda: ["heuristic", "random", "ppo+"])      # cheap AIs; the server offers one AI in real use
+    srv = make_server("127.0.0.1", 0, Path(tempfile.mkdtemp()) / "g.db", tables=1, ai_delay=0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    alice = sit(base, 1, 0, "Alice")
+    for seat in (1, 2, 3):
+        call(base, "/api/table/1/seat", {"seat": seat, "kind": "heuristic"}, alice)
+    call(base, "/api/table/1/start", {}, alice)
+    table = srv.lobby.tables[0]
+    g = table.game
+    d = g.deal
+    d.level = 5
+    d.hands[0] = [0, 1, 2]                                            # 2, 3, 4 of spades: no pair, nothing that beats a pair
+    d.table, d.table_seat, d.passes, d.to_act = Move(Combo(Kind.PAIR, 12, 2), (12, 66)), 1, 0, 0
+    g.last_action = time.time() - 10
+    return srv, base, alice, table, g
+
+
+def test_a_person_with_nothing_to_play_is_passed_automatically(monkeypatch):
+    import time
+    srv, base, alice, table, g = _table_with_a_stuck_player(monkeypatch)
+    try:
+        assert g.only_pass_left()
+        table.tick(time.time(), 0.9)                                   # the lobby's driver thread does this every 0.1 s
+        assert g.deal.to_act != 0 and any("自动不出" in line for line in g.log[-3:])
+        assert g.record["moves"][-1][2] == 0                           # the recorded move is a pass (kind 0)
+        # a person who does have a move is left alone
+        g.deal.hands[0] = [12, 66, 3]
+        g.deal.to_act, g.deal.table_seat, g.deal.table = 0, 1, Move_pair()
+        g.last_action = time.time() - 10
+        assert not g.only_pass_left()
+    finally:
+        srv.shutdown()
+        srv.lobby.stop()
+
+
+def Move_pair():
+    from guandan.combos import Combo, Kind, Move
+    return Move(Combo(Kind.PAIR, 3, 2), (3, 57))
+
+
+def test_only_the_current_rounds_plays_are_shown(monkeypatch):
+    import time
+    srv, base, alice, table, g = _table_with_a_stuck_player(monkeypatch)
+    try:
+        g.trick = {1: {"kind": "对子", "cards": ["As", "Ad"]}}
+        seats = call(base, "/api/table/1/state?seat=0", None, alice)[1]["seats"]
+        assert seats[1]["last"] is not None                            # the round is still going: its plays are shown
+        g.deal.table, g.deal.table_seat = None, None                   # the round ended; nobody has led the next one yet
+        seats = call(base, "/api/table/1/state?seat=0", None, alice)[1]["seats"]
+        assert all(s["last"] is None for s in seats)
+    finally:
+        srv.shutdown()
+        srv.lobby.stop()
