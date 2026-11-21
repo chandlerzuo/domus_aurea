@@ -8,6 +8,7 @@ e.g.  ppo+:runs/ppo/model.pt,worlds=64,topk=5,margin=0.1,belief=1.0
 Search keys: worlds, topk, margin, belief (0 = uniform hidden hands, 1 = weight by the belief head),
   eg (use the endgame search once all hands together hold at most this many cards), egworlds, egtopk,
   solve (exactly solve sampled worlds once all hands together hold at most this many cards), sworlds, sbudget,
+  snet=PATH (the same with a sequence guesser, rl/seqbelief.py),
   bnet=PATH (deal hidden hands with a dedicated hidden-hand guesser, rl/belief.py),
   sets (use the endgame search whenever the player's own hand splits into at most this many sets).
 
@@ -45,6 +46,9 @@ def factory(spec: str):
         if kw.get("bnet"):
             from guandan.rl.belief import load_belief
             bnet = load_belief(kw["bnet"])
+        if kw.get("snet"):
+            from guandan.rl.seqbelief import load_seq
+            bnet = load_seq(kw["snet"])
         return lambda seed: SearchAgent(actor, seed=seed, worlds=int(kw.get("worlds", 32)), topk=int(kw.get("topk", 4)),
                                         margin=float(kw.get("margin", 0.0)), belief=float(kw.get("belief", 0.0)),
                                         endgame_cards=int(kw.get("eg", 0)), endgame_worlds=int(kw.get("egworlds", 128)), endgame_topk=int(kw.get("egtopk", 99)),

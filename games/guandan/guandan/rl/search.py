@@ -128,8 +128,12 @@ def search_values(actor, obs: dict, rng: np.random.Generator, worlds: int = 16, 
     bel = None
     if belief > 0:
         if belief_net is not None:
-            from .belief import belief_from_net
-            bel = belief_from_net(belief_net, obs)       # the dedicated hidden-hand guesser (rl/belief.py)
+            if hasattr(belief_net, "cfg"):               # a sequence guesser (rl/seqbelief.py)
+                from .seqbelief import belief_from_seq
+                bel = belief_from_seq(belief_net, obs)
+            else:
+                from .belief import belief_from_net
+                bel = belief_from_net(belief_net, obs)   # the dedicated hidden-hand guesser (rl/belief.py)
         else:
             bel = belief_probs(actor, obs)
     ws = [sample_world(obs, rng, v, bel, belief) for _ in range(worlds)]

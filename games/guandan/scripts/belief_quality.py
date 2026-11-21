@@ -30,11 +30,15 @@ def main():
     ap.add_argument("--db", required=True)
     ap.add_argument("--model", default="runs/ppo/model.pt")
     ap.add_argument("--max-deals", type=int, default=120)
+    ap.add_argument("--seq-model", help="score a sequence guesser (rl/seqbelief.py)")
     ap.add_argument("--belief-model", help="score a dedicated hidden-hand guesser (rl/belief.py) instead of the policy's belief head")
     a = ap.parse_args()
     actor = load_policy(a.model)
     v = actor.version
-    bnet = None
+    bnet = snet = None
+    if a.seq_model:
+        from guandan.rl.seqbelief import load_seq
+        snet = load_seq(a.seq_model)
     if a.belief_model:
         from guandan.rl.belief import load_belief
         bnet = load_belief(a.belief_model)
@@ -46,7 +50,10 @@ def main():
             seat = d.to_act
             obs = d.observation(seat)
             with torch.no_grad():
-                if bnet is not None:
+                if snet is not None:
+                    from guandan.rl.seqbelief import belief_from_seq
+                    prob = belief_from_seq(snet, obs)
+                elif bnet is not None:
                     prob = torch.sigmoid(bnet(torch.from_numpy(encode_state(obs, bnet.version)).float()[None]))[0].numpy().reshape(3, -1)[:, 0::2]
                 else:
                     hs = actor.state(torch.from_numpy(encode_state(obs, v)).float()[None])

@@ -81,6 +81,12 @@ def one(args):
                                 bel, power, mix = None, 0.0, 0.0
                             elif kind == "side":
                                 bel, power, mix = belief_probs(actor, obs_k), float(rest[0]), 0.0
+                            elif kind == "snet":
+                                from guandan.rl.seqbelief import belief_from_seq, load_seq
+                                path = rest[0]
+                                if path not in nets:
+                                    nets[path] = load_seq(path)
+                                bel, power, mix = belief_from_seq(nets[path], obs_k), float(rest[1]), 0.0
                             else:
                                 path = rest[0]
                                 if path not in nets:
