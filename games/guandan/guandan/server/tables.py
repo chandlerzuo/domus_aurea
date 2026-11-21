@@ -19,13 +19,14 @@ human-watchable pace, so players and watchers all see the same game.
 """
 from __future__ import annotations
 
+import multiprocessing
 import os
 import random
 import secrets
 import threading
 import time
 import uuid
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -473,9 +474,10 @@ class Lobby:
         self.tables = [Table(i + 1, store) for i in range(n_tables)]
         self.ai_delay = ai_delay
         self.reviews: dict[tuple[int, int], str] = {}   # (deal, seat) -> "running" / "error: ..."
-        # Reviews run rollouts for up to a minute of CPU; a separate process keeps them
-        # from competing with live tables for the interpreter lock.
-        self.review_pool = ProcessPoolExecutor(1)
+        # Reviews run rollouts for up to a minute of CPU; a separate process keeps them from competing with live tables for the
+        # interpreter lock. That process holds its own copy of PyTorch and the model (about 200 MB), so it is started for one review
+        # and exits afterwards (`_isolated`): a small machine only pays for it while a review is running. One review at a time.
+        self.review_pool = ThreadPoolExecutor(1)
         self._stop = threading.Event()
         self.thread = threading.Thread(target=self._drive, daemon=True)
         self.thread.start()
@@ -519,7 +521,7 @@ class Lobby:
         state = self.reviews.get(key)
         if state is None or state.startswith("error"):
             self.reviews[key] = "running"
-            fut = self.review_pool.submit(run_review, record, seat)
+            fut = self.review_pool.submit(_isolated, run_review, record, seat)
             fut.add_done_callback(lambda f, key=key: self._reviewed(key, f))
         return {"status": "running"}
 
@@ -536,3 +538,35 @@ def run_review(record: dict, seat: int) -> dict:
     import torch
     torch.set_num_threads(1)
     return review_deal(record, _net("ppo"), seat=seat, label_fn=zh.move_zh)
+
+
+def _child(conn, fn, args) -> None:
+    try:
+        conn.send(("ok", fn(*args)))
+    except BaseException as e:   # report any failure to the parent
+        conn.send(("error", repr(e)))
+    finally:
+        conn.close()
+
+
+def _isolated(fn, *args, timeout: float = 600.0):
+    """Run `fn(*args)` in a fresh process that exits when it is done, so its memory is returned to the machine."""
+    ctx = multiprocessing.get_context("spawn")
+    parent, child = ctx.Pipe(duplex=False)
+    p = ctx.Process(target=_child, args=(child, fn, args), daemon=True)
+    p.start()
+    child.close()
+    try:
+        if not parent.poll(timeout):
+            raise TimeoutError("the review took too long")
+        kind, value = parent.recv()
+    except EOFError:
+        raise RuntimeError("the review process died (out of memory?)") from None
+    finally:
+        parent.close()
+        p.join(5)
+        if p.is_alive():
+            p.kill()
+    if kind == "error":
+        raise RuntimeError(value)
+    return value

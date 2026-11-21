@@ -27,6 +27,7 @@
 #     --domain D --email E   use a Let's Encrypt certificate for domain D instead
 #   --prefix DIR        install under DIR, without root (testing)
 #   --no-systemd        don't install a service; start the server in the background (testing)
+#   --no-swap           don't add a 2 GB swap file on a machine with under 3 GB of memory and no swap
 #
 # Re-running upgrades the code in place and keeps the database.
 #
@@ -46,6 +47,7 @@ PREFIX=""
 SYSTEMD=1
 PUBLIC=0
 PUB_ARGS=()
+SWAP=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --tables) TABLES="$2"; shift 2 ;;
@@ -57,6 +59,7 @@ while [ $# -gt 0 ]; do
     --torch-index) TORCH_INDEX="$2"; shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
     --no-systemd) SYSTEMD=0; shift ;;
+    --no-swap) SWAP=0; shift ;;
     --public) PUBLIC=1; shift ;;
     --password) PUB_ARGS+=(--password "$2"); shift 2 ;;
     --login-user) PUB_ARGS+=(--user "$2"); shift 2 ;;
@@ -98,6 +101,17 @@ if [ -z "$PREFIX" ] && command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y -qq python3-venv python3-pip sqlite3 ca-certificates ${REPO:+git} >/dev/null
+fi
+# A small machine (under 3 GB) with no swap gets a 2 GB swap file: PyTorch, the AI search and the review worker together can
+# briefly need more memory than the machine has, and without swap the kernel then kills the server.
+if [ -z "$PREFIX" ] && [ "$SWAP" = 1 ] && [ -r /proc/meminfo ]; then
+  MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+  if [ "$MEM_MB" -lt 3000 ] && [ -z "$(swapon --show --noheadings 2>/dev/null)" ]; then
+    echo "memory is ${MEM_MB} MB and there is no swap: adding a 2 GB swap file (/swapfile); skip with --no-swap"
+    fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile \
+      && { grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab; } \
+      || echo "warning: could not create the swap file; continuing without"
+  fi
 fi
 PYV=$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' \

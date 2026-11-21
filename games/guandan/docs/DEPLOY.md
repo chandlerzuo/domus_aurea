@@ -56,6 +56,17 @@ real machine before raising it much
 (`python scripts/loadtest.py --tables 10 30 --seconds 60`). Run it on the server
 itself, so the tunnel isn't part of the measurement.
 
+## Memory
+
+Measured on the installed bundle (version-5 model plus the sequence guesser, both AI strategies in use):
+the server process takes about 175 MB idle and about 270 MB with 10 tables running (30 AI seats searching, 2 watchers per table); it
+stays flat over a 200-second soak, so there is no leak. A post-game review runs in its own short-lived process (about 200 MB while it
+runs, gone afterwards). With the board game (Node, up to 700 MB for four running games), nginx and the system, plan for **at least 2 GB**;
+1 GB is tight. `setup_lighthouse.sh` adds a 2 GB swap file on a machine with under 3 GB of memory and no swap (`--no-swap` to skip), so a
+brief peak slows the server down instead of getting it killed. If the server crashes anyway, run `sudo bash deploy/diagnose.sh`
+(from the unpacked bundle): it shows memory and swap, the biggest processes, whether the kernel killed something for memory, whether the
+Rust core is the current version, and the last log lines.
+
 ## The search AI and the Rust core
 
 The default AI, `ppo+` ("PPO+搜索"), looks ahead with the PPO policy and needs the Rust core

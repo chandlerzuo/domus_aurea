@@ -66,7 +66,7 @@ def run(tables: int, watchers: int, seconds: float, port: int) -> dict:
     def player(tid):
         tok = timed(base, f"/api/table/{tid}/sit", {"seat": 0, "name": "bot", "suggestions": True})["token"]
         for seat in (1, 2, 3):
-            timed(base, f"/api/table/{tid}/seat", {"seat": seat, "kind": "ppo"}, tok)
+            timed(base, f"/api/table/{tid}/seat", {"seat": seat, "kind": "ppo+"}, tok)
         timed(base, f"/api/table/{tid}/start", {}, tok)
         seen = (0, 0)
         while not stop.is_set():
