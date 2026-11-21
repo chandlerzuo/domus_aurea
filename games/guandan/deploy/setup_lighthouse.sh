@@ -146,7 +146,8 @@ if [ -z "$REPO" ] && [ -d "$SRC/wheels" ]; then
   echo "offline wheels ($WPLAT, Python $WPY)"
   "$VENV/bin/pip" install -q --no-index --find-links "$SRC/wheels" numpy torch
   if ls "$SRC/wheels"/guandan_core-*.whl >/dev/null 2>&1; then
-    "$VENV/bin/pip" install -q --no-index --find-links "$SRC/wheels" guandan_core \
+    # --force-reinstall: a rebuilt core can carry the same version number, and pip would keep the old one otherwise
+    "$VENV/bin/pip" install -q --no-index --force-reinstall --no-deps --find-links "$SRC/wheels" guandan_core \
       || echo "warning: the Rust core would not install; using the Python engine (slower, no ppo+ search)"
   else
     echo "note: this bundle has no Rust core; using the Python engine (slower, no ppo+ search)"
@@ -186,6 +187,9 @@ for variant in T.ai_variants():                                  # every AI stra
     assert a is None or (a.variant == variant and 0 <= a.act(obs) < len(obs["legal"])), variant
 print("AI strategies (picked at random per AI seat):", ", ".join(sorted(set(["v5"] if not T.SEQ_GUESSER.exists() else ["v5", "v5+seq"]))))
 from guandan.combos import FAST
+if FAST:   # the Rust core must be as new as the code and the model (older cores fail as soon as an AI seat has to move)
+    import guandan_core
+    assert hasattr(guandan_core, "STATE_DIM_V5"), "the installed Rust core (guandan_core) is older than this code; rebuild the bundle (deploy/make_bundle.sh) and install it again"
 print("trained PPO model OK, sha256", hashlib.sha256(MODELS["ppo"].read_bytes()).hexdigest()[:16])
 print("engine:", "rust" if FAST else "python (slower)", "| search AI (ppo+):", "on" if "ppo+" in agent_kinds() else "off")
 EOF
