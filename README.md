@@ -56,12 +56,14 @@ run without the AI search). On a new machine:
 
 ```bash
 git clone <repo> && cd domus_aurea && git checkout <the commit>          # clean checkout; the bundle is built from the last commit
-python3.12 -m venv .venv && .venv/bin/pip install maturin ziglang        # the Rust cross-build needs both
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh           # if there is no Rust toolchain yet
-rustup target add x86_64-unknown-linux-gnu
+deploy/setup_build_tools.sh                                              # installs/checks Python 3.12, .venv + maturin + ziglang, Rust + the Linux target
 deploy/make_bundle.sh                                                    # needs internet (it downloads the PyTorch CPU wheel)
 deploy/verify_bundle.sh dist/domus_aurea-<rev>.tar.gz                    # must print "bundle OK"
 ```
+
+`setup_build_tools.sh` asks before installing anything (`--yes` to skip the questions, `--check` to only report, `--arm` to add the ARM
+Linux target) and finishes with a test cross-build of the Rust core. It installs Python 3.12 through Homebrew and Rust through the official
+rustup installer, if they are missing.
 
 `verify_bundle.sh` checks that the Linux Rust core is present, at least version 0.2.0 and has the newest features, that the wheels match the
 server's Python, and that the model files are there; it prints SHA-256 checksums of the model files, which must equal those printed on your
