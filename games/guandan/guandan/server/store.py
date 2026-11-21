@@ -47,7 +47,8 @@ class Store:
         order = record.get("finished") or []
         for seat in range(4):
             human = record["kinds"][seat] == "human"
-            model = record.get("model", "")
+            models = record.get("models") or []
+            model = (models[seat] if seat < len(models) and models[seat] else record.get("model", ""))   # per seat since two AI variants run at once
             name = record["names"][seat] if human else ai_name(model)
             if seat not in order:
                 continue

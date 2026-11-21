@@ -20,6 +20,7 @@ human-watchable pace, so players and watchers all see the same game.
 from __future__ import annotations
 
 import os
+import random
 import secrets
 import threading
 import time
@@ -40,6 +41,7 @@ from .store import Store
 
 RUNS = Path(__file__).resolve().parents[2] / "runs"
 MODELS = {"dmc": RUNS / "dmc" / "model.pt", "ppo": RUNS / "ppo" / "model.pt"}
+SEQ_GUESSER = RUNS / "ppo" / "seq_guesser.pt"     # the sequence hidden-hand guesser (rl/seqbelief.py); optional
 SEARCH_WORLDS = int(os.environ.get("GUANDAN_SEARCH_WORLDS", "32"))
 SEARCH_TOPK = int(os.environ.get("GUANDAN_SEARCH_TOPK", "4"))
 SEARCH_MARGIN = float(os.environ.get("GUANDAN_SEARCH_MARGIN", "0.0"))
@@ -75,6 +77,22 @@ def agent_kinds() -> list[str]:
     return [default_ai()]
 
 
+def ai_variants() -> list[str]:
+    """The strategies a `ppo+` seat can use. "v5" is the policy with search; "v5+seq" is the same with the sequence guesser dealing
+    the sampled hidden hands. Every AI seat picks one at random when it is added, so the two can be compared on live games
+    (scripts/human_vs_ai.py). GUANDAN_AI_VARIANTS (comma separated) overrides; without the guesser file there is only "v5"."""
+    names = [x.strip() for x in os.environ.get("GUANDAN_AI_VARIANTS", "").split(",") if x.strip()] or ["v5", "v5+seq"]
+    return [x for x in names if x != "v5+seq" or SEQ_GUESSER.exists()]
+
+
+def _seq_net():
+    with _NETS_LOCK:
+        if "seq" not in _NETS:
+            from ..rl.seqbelief import load_seq
+            _NETS["seq"] = load_seq(SEQ_GUESSER)
+        return _NETS["seq"]
+
+
 def _net(kind: str):
     with _NETS_LOCK:
         if kind not in _NETS:
@@ -96,20 +114,27 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
         return PolicyAgent(_net("ppo"), seed=seed)
     if kind == "ppo+":
         from ..rl.search import SearchAgent
-        return SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN,
-                           belief=SEARCH_BELIEF, endgame_cards=ENDGAME_CARDS, endgame_worlds=ENDGAME_WORLDS,
-                           endgame_topk=ENDGAME_TOPK, plan_sets=PLAN_SETS)
+        variant = random.choice(ai_variants())
+        agent = SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN,
+                            belief=SEARCH_BELIEF, endgame_cards=ENDGAME_CARDS, endgame_worlds=ENDGAME_WORLDS,
+                            endgame_topk=ENDGAME_TOPK, plan_sets=PLAN_SETS,
+                            belief_net=_seq_net() if variant == "v5+seq" else None)
+        agent.variant = variant
+        return agent
     if kind not in BASE_AGENTS:
         raise ValueError(f"unknown agent {kind!r}")
     return BASE_AGENTS[kind](seed=seed)
 
 
-@lru_cache(maxsize=1)
-def model_id() -> str:
-    """Which AI played: a short hash of the model file plus the search settings. Saved with every deal, so results can be
-    compared between versions (scripts/human_vs_ai.py)."""
+@lru_cache(maxsize=4)
+def model_id(variant: str = "v5") -> str:
+    """Which AI played: a short hash of the model file (plus one of the guesser file for "v5+seq") and the search settings. The
+    part before the first "/" is the name the ranking lists it under. Saved with every deal, so results can be compared between
+    versions (scripts/human_vs_ai.py)."""
     import hashlib
     h = hashlib.sha256(MODELS["ppo"].read_bytes()).hexdigest()[:8] if MODELS["ppo"].exists() else "none"
+    if variant == "v5+seq" and SEQ_GUESSER.exists():
+        h += "+s" + hashlib.sha256(SEQ_GUESSER.read_bytes()).hexdigest()[:8]
     return f"{h}/w{SEARCH_WORLDS}k{SEARCH_TOPK}b{SEARCH_BELIEF:g}/eg{ENDGAME_CARDS}"
 
 
@@ -237,6 +262,7 @@ class Game:
                 "level": d.level, "team_levels": list(d.team_levels), "level_team": d.level_team,
                 "leader": seat, "hands": [list(h) for h in d.hands], "kinds": list(self.kinds),
                 "names": list(self.names), "humans": sorted(self.humans), "model": model_id(),
+                "models": [model_id(getattr(a, "variant", None) or "v5") if a is not None and getattr(a, "variant", None) else "" for a in self.agents],
                 "assisted": sorted(s for s in self.humans if self.humans[s]), "moves": [],
                 "tributes": [{"payer": t.payer, "receiver": t.receiver, "card": zh.card_zh(t.card),
                               "returned": zh.card_zh(t.returned) if t.returned is not None else None}

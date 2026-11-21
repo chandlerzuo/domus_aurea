@@ -72,3 +72,16 @@ def test_existing_deals_are_backfilled(tmp_path):
         s.db.execute("DROP TABLE placements")
     t = Store(path)                                                   # opening the database rebuilds the table
     assert t.leaderboard(min_games=3)[0]["name"] == "Ann"
+
+
+def test_ai_seats_are_listed_by_their_own_variant(tmp_path):
+    s = Store(tmp_path / "g.db")
+    models = ["", "abcd1234/w32k4b1/eg28", "", "abcd1234+s99887766/w32k4b1/eg28"]      # seat 1: v5, seat 3: v5 + sequence guesser
+    r = record(["Ann", "x", "y", "z"], ["human", "ppo+", "ppo+", "ppo+"], [0, 1, 2, 3], 0, 3)
+    r["models"] = ["", models[1], models[1], models[3]]
+    for k in range(6):
+        s.save_deal(r)
+    names = {p["name"] for p in s.leaderboard(min_games=1, limit=50) if p["ai"]}
+    assert names == {"AI abcd1234", "AI abcd1234+s99887766"}
+    by = {p["name"]: p for p in s.leaderboard(min_games=1, limit=50) if p["ai"]}
+    assert by["AI abcd1234"]["games"] == 12 and by["AI abcd1234+s99887766"]["games"] == 6     # two seats use v5, one the guesser

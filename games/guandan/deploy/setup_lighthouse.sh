@@ -165,6 +165,12 @@ d = Deal(deal_cards(np.random.default_rng(0)), 3, 0)
 obs = d.observation(0)
 for kind in [k for k in ("ppo", "ppo+") if k in agent_kinds()]:
     assert 0 <= make_agent(kind, seed=0).act(obs) < len(obs["legal"]), kind
+import guandan.server.tables as T
+for variant in T.ai_variants():                                  # every AI strategy the server may pick must load and play
+    T.ai_variants = lambda v=variant: [v]
+    a = T.make_agent("ppo+", seed=0) if "ppo+" in agent_kinds() else None
+    assert a is None or (a.variant == variant and 0 <= a.act(obs) < len(obs["legal"])), variant
+print("AI strategies (picked at random per AI seat):", ", ".join(sorted(set(["v5"] if not T.SEQ_GUESSER.exists() else ["v5", "v5+seq"]))))
 from guandan.combos import FAST
 print("trained PPO model OK, sha256", hashlib.sha256(MODELS["ppo"].read_bytes()).hexdigest()[:16])
 print("engine:", "rust" if FAST else "python (slower)", "| search AI (ppo+):", "on" if "ppo+" in agent_kinds() else "off")

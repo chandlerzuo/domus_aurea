@@ -29,6 +29,43 @@ def line(label: str, xs) -> str:
     return f"{label:34s} {len(x):5d} deals  {x.mean():+.2f} ± {se:.2f} levels/deal   human team wins {np.mean(x > 0):.0%}"
 
 
+def ai_versions(db_path: str, include_assisted: bool) -> None:
+    """Compare the AI strategies that ran at the same time: every AI seat picks one at random, so seats are comparable."""
+    seats = collections.defaultdict(lambda: ([], [0, 0, 0, 0]))
+    human_by_partner, human_by_opp_seq = collections.defaultdict(list), collections.defaultdict(list)
+    for (rec,) in sqlite3.connect(db_path).execute("SELECT record FROM deals ORDER BY id"):
+        r = json.loads(rec)
+        if len(r["humans"]) != 1 or (r["assisted"] and not include_assisted) or not r.get("models"):
+            continue
+        h = r["humans"][0]
+        win, up = r["result"]["win_team"], r["result"]["up"]
+        for s_ in range(4):
+            if s_ == h:
+                continue
+            name = r["models"][s_].split("/")[0] or "unknown"
+            seats[name][0].append(up if s_ % 2 == win else -up)
+            seats[name][1][r["finished"].index(s_)] += 1
+        v = up if win == team(h) else -up
+        partner = r["models"][(h + 2) % 4].split("/")[0] or "unknown"
+        human_by_partner[partner].append(v)
+        human_by_opp_seq[sum(1 for s_ in range(4) if s_ % 2 != h % 2 and "+s" in r["models"][s_].split("/")[0])].append(v)
+    if not seats:
+        print("\n(no deals with per-seat AI versions yet)")
+        return
+    print("\nAI versions, per AI seat (levels the AI seat's team gained; every seat picks its version at random, so this is a fair comparison):")
+    for name, (xs, places) in sorted(seats.items()):
+        x = np.array(xs, dtype=float)
+        n = len(x)
+        print(f"  {name:28s} {n:5d} seat-deals  {x.mean():+.3f} ± {x.std(ddof=1) / np.sqrt(n) if n > 1 else float('nan'):.3f}   "
+              f"1st/2nd/3rd/4th: {'/'.join(f'{100 * p / n:.0f}%' for p in places)}")
+    print("\nThe human's team by the version of its AI partner:")
+    for name, xs in sorted(human_by_partner.items()):
+        print("  " + line(name, xs))
+    print("\nThe human's team by how many of the two opposing AIs use the sequence guesser:")
+    for k, xs in sorted(human_by_opp_seq.items()):
+        print("  " + line(f"{k} of 2 opponents", xs))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", required=True)
@@ -59,6 +96,7 @@ def main():
     print("\nBy player (all AI versions):")
     for n, xs in sorted(by_player.items(), key=lambda kv: -len(kv[1])):
         print("  " + line(n, xs))
+    ai_versions(a.db, a.include_assisted)
     if len(by_model) > 1:
         print("\nBy AI version and player:")
         for (m, n), xs in sorted(by_pair.items()):
