@@ -30,6 +30,7 @@ from torch import nn
 
 from ..agents import Agent, HeuristicAgent
 from ..game import Match, team
+from .compact import state_of
 from .features import ACTION_DIM, STATE_DIM, encode_actions, encode_state
 
 torch.set_num_threads(1)  # batch-of-legal-moves inference is faster single-threaded; actors are processes
@@ -58,7 +59,7 @@ class QNet(nn.Module):
 def load_net(path: str | Path, device: str = "cpu") -> QNet:
     ckpt = torch.load(path, map_location=device, weights_only=True)
     net = QNet(ckpt["hidden"])
-    net.load_state_dict(ckpt["state"])
+    net.load_state_dict(state_of(ckpt))
     return net.to(device).eval()
 
 

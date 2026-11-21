@@ -16,6 +16,8 @@ import numpy as np
 import torch
 from torch import nn
 
+from .compact import state_of
+
 T_MAX = 192          # history tokens kept (a deal has about 100-150 plays and passes)
 N_CARDS = 108
 N_KIND = 11
@@ -57,7 +59,7 @@ def save_seq(net: SeqBelief, path: str | Path, **extra) -> None:
 def load_seq(path: str | Path, device: str = "cpu") -> SeqBelief:
     ck = torch.load(path, map_location=device, weights_only=True)
     net = SeqBelief(**ck["cfg"])
-    net.load_state_dict(ck["state"])
+    net.load_state_dict(state_of(ck))
     return net.to(device).eval()
 
 

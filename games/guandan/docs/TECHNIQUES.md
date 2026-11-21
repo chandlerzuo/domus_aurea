@@ -179,6 +179,15 @@ against 2.9 for their AI partner), so they hold control longer. (3) The AI's cos
 would have taken the lead (about 1 in 6 passes); people have the same pattern, so it is not AI-specific. (4) Multi-card choices
 (full house, straight, triple, straight flush) carry more regret for the AIs than for the person, on small samples.
 
+**Compact model files.** The files in `runs/` that the server (and the opponent leagues) load are stored with int8 weights
+(one scale per output row; `rl/compact.py`, `scripts/compact_models.py`) and no critic: the policy went from 16.5 MB to 2.2 MB, the
+sequence guesser from 15.0 MB to 3.9 MB, v1 from 11.8 to 1.6 MB and the DMC network from 6.8 to 1.7 MB (tracked model files 62 MB -> 21 MB;
+what the server needs, the policy and the guesser, 31.5 MB -> 6.0 MB). Loading expands them to ordinary float32 networks, so inference is
+unchanged. Measured cost: the policy's top move changes in 0.5% of decisions; the plain policy against the original is +0.01 +- 0.04
+levels per deal over 3,000 deals, the full search with both compact files +0.06 +- 0.09 over 720 deals, and the guesser's real-game scores
+are identical to three decimals; fp16 (`--mode fp16`) is lossless but only halves the size. A compact policy cannot be trained further (no
+critic): start training from the original float32 checkpoint (`runs/all3/model.pt`, `runs/round2/model.pt`, ... are not tracked).
+
 **Training the policy toward the search player's choices (tried, no gain).**
 `guandan/rl/distill.py`, `scripts/label_search.py` and `scripts/fit_distill.py` label decisions
 with the search (policy shifted toward the better-looking candidates) and fit the policy to the

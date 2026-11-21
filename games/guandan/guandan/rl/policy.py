@@ -20,6 +20,8 @@ import numpy as np
 import torch
 from torch import nn
 
+from .compact import state_of
+
 from ..agents import Agent
 from .features import ACTION_DIM, CARD_DIM, STATE_DIM, action_dim, card_vec, encode_actions, encode_state, state_dim
 
@@ -163,13 +165,15 @@ def load_policy(path: str | Path, device: str = "cpu", critic: bool = False):
     ckpt = torch.load(path, map_location=device, weights_only=True)
     version = ckpt.get("version", 1)
     actor = Actor(ckpt["hidden"], version)
-    res = actor.load_state_dict(ckpt["actor"], strict=False)
+    res = actor.load_state_dict(state_of(ckpt, "actor"), strict=False)
     assert not [k for k in res.missing_keys if not k.startswith(("style.", "race."))] and not res.unexpected_keys, res   # older files have no style head
     actor = actor.to(device).eval()
     if not critic:
         return actor
+    if "critic" not in ckpt:
+        raise ValueError(f"{path} is a compact file without the critic; training needs the original float32 checkpoint")
     c = Critic(ckpt["hidden"], version)
-    c.load_state_dict(ckpt["critic"])
+    c.load_state_dict(state_of(ckpt, "critic"))
     return actor, c.to(device).eval()
 
 

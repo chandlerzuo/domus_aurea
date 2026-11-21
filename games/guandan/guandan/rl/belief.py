@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from .compact import state_of
 from .features import encode_state, state_dim
 from .policy import ORACLE_DIM
 
@@ -45,7 +46,7 @@ def save_belief(net: BeliefNet, path: str | Path, **extra) -> None:
 def load_belief(path: str | Path, device: str = "cpu") -> BeliefNet:
     ck = torch.load(path, map_location=device, weights_only=True)
     net = BeliefNet(ck["hidden"], ck["version"], ck.get("layers", 3))
-    net.load_state_dict(ck["state"])
+    net.load_state_dict(state_of(ck))
     return net.to(device).eval()
 
 

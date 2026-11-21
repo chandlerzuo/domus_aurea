@@ -25,3 +25,4 @@ rust/target/
 
 # recorded games copied from a server
 *.db
+runs/fp32_originals/
