@@ -48,7 +48,7 @@ export PYTHON="$PY"
 bash games/guandan/deploy/build_wheels.sh --tree "$WORK/$NAME/games/guandan" --python "$PYVER" --platform "$PLATFORM"
 
 mkdir -p "$OUT"
-tar -czf "$OUT/$NAME.tar.gz" -C "$WORK" "$NAME"
+tar --exclude="rust/target" -czf "$OUT/$NAME.tar.gz" -C "$WORK" "$NAME"
 SIZE=$(du -h "$OUT/$NAME.tar.gz" | cut -f1)
 SUM=$( (shasum -a 256 "$OUT/$NAME.tar.gz" 2>/dev/null || sha256sum "$OUT/$NAME.tar.gz") | cut -d' ' -f1)
 cat <<EOF
