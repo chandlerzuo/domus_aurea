@@ -49,6 +49,25 @@ Open TCP 80 and 443 in the Lighthouse firewall; never the game ports. Options: `
 keeps the Guandan database and the password. If you used the old separate deployments, setup carries the login
 over and retires the old nginx sites (you can then close TCP 8443).
 
+### Building the bundle on a different Mac
+
+The bundle must carry a freshly built Rust core for Linux, and the build script only *warns* if it cannot build one (the server would then
+run without the AI search). On a new machine:
+
+```bash
+git clone <repo> && cd domus_aurea && git checkout <the commit>          # clean checkout; the bundle is built from the last commit
+python3.12 -m venv .venv && .venv/bin/pip install maturin ziglang        # the Rust cross-build needs both
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh           # if there is no Rust toolchain yet
+rustup target add x86_64-unknown-linux-gnu
+deploy/make_bundle.sh                                                    # needs internet (it downloads the PyTorch CPU wheel)
+deploy/verify_bundle.sh dist/domus_aurea-<rev>.tar.gz                    # must print "bundle OK"
+```
+
+`verify_bundle.sh` checks that the Linux Rust core is present, at least version 0.2.0 and has the newest features, that the wheels match the
+server's Python, and that the model files are there; it prints SHA-256 checksums of the model files, which must equal those printed on your
+first machine for the same commit. (The tarball itself is not byte-identical between builds, so compare the model checksums, not the tarball.)
+The installer on the server runs the same Rust-core check again before it starts the service.
+
 See [`games/guandan/docs/DEPLOY.md`](games/guandan/docs/DEPLOY.md) for capacity numbers and
 [`games/guandan/docs/SERVER_SPEC.md`](games/guandan/docs/SERVER_SPEC.md) for the Guandan server in detail
 (written for the standalone setup; the combined setup differs only in the nginx site and the login file names:
