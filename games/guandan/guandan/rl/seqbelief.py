@@ -34,7 +34,7 @@ class SeqBelief(nn.Module):
         self.pos = nn.Embedding(T_MAX + 1, d)
         self.state = nn.Sequential(nn.Linear(STATE_DIM, d), nn.ReLU(), nn.Linear(d, d))
         enc = nn.TransformerEncoderLayer(d, heads, ff, dropout=0.0, batch_first=True, norm_first=True)
-        self.enc = nn.TransformerEncoder(enc, layers)
+        self.enc = nn.TransformerEncoder(enc, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(d)
         self.head = nn.Sequential(nn.Linear(d, 512), nn.ReLU(), nn.Linear(512, OUT_DIM))
 
