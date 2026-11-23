@@ -74,17 +74,18 @@ def q_logits(net, S: np.ndarray, A: np.ndarray, n: np.ndarray):
 
 
 class _Traj:
-    __slots__ = ("S", "O", "A", "chosen", "logp", "value", "sets", "race")
+    __slots__ = ("S", "O", "A", "chosen", "logp", "value", "sets", "race", "team")
 
     def __init__(self):
         self.S, self.O, self.A, self.chosen, self.logp, self.value = [], [], [], [], [], []
-        self.sets, self.race = [], []      # fewest sets in the player's own hand / in each other hand, at each decision
+        self.sets, self.race, self.team = [], [], []      # fewest sets in the player's own hand / in each other hand / in all four, at each decision
 
 
 def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, opponents, p_tribute: float,
                lam: float, reward_scale: float, width: int = 64, version: int = 1, match_bonus: float = 0.0,
                p_endgame: float = 0.0, p_runout: float = 0.0, shape_first: float = 0.0,
-               shape_bomb: float = 0.0, shape_sets: float = 0.0, shape_left: float = 0.0, want_race: bool = False) -> dict:
+               shape_bomb: float = 0.0, shape_sets: float = 0.0, shape_left: float = 0.0, want_race: bool = False,
+               partners=None, p_partner: float = 0.0, shape_team: float = 0.0) -> dict:
     """`learner` = (actor, critic); `opponents` = callable(rng) -> ("self"|"heuristic"|"dmc"|"snapshot", net or None).
 
     mode "bc": the heuristic plays all four seats and its choices are recorded (imitation data).
@@ -103,12 +104,19 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
     only makes the learning signal denser. `shape_left` charges that many levels per set the player is still holding when the deal
     ends, which does change the objective: it says that being stuck with sets matters beyond the levels. `want_race` records, at
     every decision, the other players' fewest-sets counts (targets for the model's race head).
+    `partners` (callable(rng) -> (kind, net or None), like `opponents`) and `p_partner`: in that share of deals the learner plays only
+    ONE seat of its team and the other seat, its partner, is a different kind of player (a scripted style, the heuristic, or an older
+    network). Otherwise the learner always plays both seats of its team, i.e. with a copy of itself, and never has to cooperate with
+    anyone who plays differently, which is what a human partner is.
+    `shape_team` pays that many levels per set of difference in the team's progress, measured with all four hands: the potential is
+    (the opponents' sets) - (own sets + partner's sets), so helping the partner out, and holding the opponents back, is rewarded as
+    well as emptying your own hand. Potential-based (zero when the deal ends), so it does not change the best play.
     """
     from .dmc import random_match
 
     actor, critic = learner if learner is not None else (None, None)
     out = {k: [] for k in ("S", "O", "A", "n", "chosen", "logp", "adv", "ret", "L", "R")}
-    track = bool(shape_sets or shape_left or want_race)
+    track = bool(shape_sets or shape_left or want_race or shape_team)
     scores_by: dict[str, list] = defaultdict(list)
     tables: list[dict] = []
     started = 0
@@ -142,21 +150,33 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
         kind, net = got[0], got[1]
         label = got[2] if len(got) > 2 else {"self": 0, "heuristic": 1, "dmc": 2}.get(kind, 0)
         ctrl, agents = [], [None] * 4
+        pkind = pnet = None
+        partner_seat = None
+        if mode == "ppo" and partners is not None and rng.random() < p_partner:
+            pkind, pnet = partners(rng)[:2]
+            partner_seat = me + 2 * int(rng.integers(2))                    # one of the learner team's two seats (seats 0/2 and 1/3 are teams)
+            kind = f"{kind}|partner:{pkind.split(':')[-1]}"
         for s in range(4):
             seed = int(rng.integers(2**31))
             if mode == "bc":
                 ctrl.append("bc")
                 agents[s] = HeuristicAgent(seed)
-            elif kind == "self" or team(s) == me:
+            elif s == partner_seat:                       # a partner who is not a copy of the learner
+                if pkind == "snapshot":
+                    ctrl.append("psnap")
+                else:
+                    ctrl.append("heur")
+                    agents[s] = HeuristicAgent(seed) if pkind == "heuristic" else make_style(pkind[6:], seed)
+            elif kind.startswith("self") or team(s) == me:
                 ctrl.append("learn")
-            elif kind == "heuristic":
+            elif kind.startswith("heuristic"):
                 ctrl.append("heur")
                 agents[s] = HeuristicAgent(seed)
             elif kind.startswith("style:"):    # a scripted opponent with a personality (agents.STYLES)
                 ctrl.append("heur")
-                agents[s] = make_style(kind[6:], seed)
+                agents[s] = make_style(kind.split("|")[0][6:], seed)
             else:
-                ctrl.append(kind)  # "dmc" or "snapshot": batched network controllers
+                ctrl.append(kind.split("|")[0])  # "dmc" or "snapshot": batched network controllers
         for t in m.pending_returns:
             m.give_return(t.receiver, HeuristicAgent(0).choose_return(d.hands[t.receiver], d.level))
         rs = rs_from_deal(d)
@@ -172,7 +192,7 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
         ends = m.level_team is not None and m.team_levels[m.level_team] == ACE   # a win by this team with up >= 2 ends the match
         return {"rs": rs, "ctrl": ctrl, "agents": agents, "me": me, "kind": kind,
                 "match_team": m.level_team if ends else None,
-                "net": net, "label": label, "trajs": [_Traj() for _ in range(4)]}
+                "net": net, "pnet": pnet, "label": label, "trajs": [_Traj() for _ in range(4)]}
 
     def finish(t: dict) -> None:
         win, up = t["rs"].result()
@@ -195,6 +215,11 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
                     for k in range(K - 1):
                         rew[k] = shape_sets * (tr.sets[k] - tr.sets[k + 1]) / reward_scale
                     rew[K - 1] = (shape_sets * tr.sets[K - 1] - shape_left * h_end) / reward_scale
+                if shape_team:
+                    pot = [shape_team * (tm[(s + 1) % 4] + tm[(s + 3) % 4] - tm[s] - tm[(s + 2) % 4]) for tm in tr.team]
+                    for k in range(K - 1):
+                        rew[k] += (pot[k + 1] - pot[k]) / reward_scale
+                    rew[K - 1] += -pot[K - 1] / reward_scale
                 rew[K - 1] += r
                 vals = tr.value + [0.0]
                 adv, gae = [0.0] * K, 0.0
@@ -236,11 +261,11 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
                 tr.O.append(rs.encode_oracle(seat)), tr.chosen.append(i), tr.logp.append(0.0), tr.value.append(0.0)
                 rs.play_index(i)
             else:
-                groups["learn" if c == "learn" else (c, id(t["net"]))].append(t)
+                groups["learn" if c == "learn" else (c, id(t["pnet"] if c == "psnap" else t["net"]))].append(t)
         with torch.no_grad():
             for key, ts in groups.items():
                 deals = [t["rs"] for t in ts]
-                net = actor if key == "learn" else ts[0]["net"]
+                net = actor if key == "learn" else (ts[0]["pnet"] if key[0] == "psnap" else ts[0]["net"])
                 S, A, n = core.batch_encode(deals, getattr(net, "version", 1))
                 if key == "learn":
                     logits, s_t = policy_logits(actor, S, A, n)
@@ -256,12 +281,14 @@ def play_batch(rng: np.random.Generator, n_deals: int, mode: str, learner, oppon
                         if track:
                             rs_ = t["rs"]
                             tr.sets.append(rs_.min_sets(seat))
+                            if shape_team:
+                                tr.team.append([rs_.min_sets(x) for x in range(4)])
                             if want_race:
                                 tr.race.append([rs_.min_sets((seat + o) % 4) / 10.0 for o in (1, 2, 3)])
                 elif key[0] == "dmc":
                     idx, _, _ = sample_rows(q_logits(ts[0]["net"], S, A, n), n, rng, greedy=True)
-                else:  # snapshot policy, sampled
-                    logits, _ = policy_logits(ts[0]["net"], S, A, n)
+                else:  # snapshot policy (an opponent or the learner's partner), sampled
+                    logits, _ = policy_logits(net, S, A, n)
                     idx, _, _ = sample_rows(logits, n, rng)
                 core.batch_play(deals, [int(i) for i in idx])
         still = []

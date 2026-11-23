@@ -46,8 +46,10 @@ if __name__ == "__main__":
     ap.add_argument("--shape-sets", type=float, default=0.0, help="levels per set removed from the own fewest-sets plan (potential-based, denser signal)")
     ap.add_argument("--shape-left", type=float, default=0.0, help="levels charged per set still held when the deal ends")
     ap.add_argument("--race-coef", type=float, default=0.0, help="weight of the auxiliary loss on the others' fewest-sets counts")
+    ap.add_argument("--p-partner", type=float, default=0.0, help="share of deals where the learner plays one seat and its partner is the heuristic, a scripted style or an older network")
+    ap.add_argument("--shape-team", type=float, default=0.0, help="levels per set of difference in the team's progress (all four hands; potential-based)")
     a = ap.parse_args()
-    cfg = PPOConfig(shape_sets=a.shape_sets, shape_left=a.shape_left, race_coef=a.race_coef, widen_hidden=a.widen_hidden, max_snapshots=a.max_snapshots, style_coef=a.style_coef, shape_first=a.shape_first, shape_bomb=a.shape_bomb, p_style=a.p_style, styles=a.styles, p_runout=a.p_runout, p_endgame=a.p_endgame, match_bonus=a.match_bonus, league=a.league, p_heuristic=a.p_heuristic, p_dmc=a.p_dmc, p_snapshot=a.p_snapshot, workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
+    cfg = PPOConfig(p_partner=a.p_partner, shape_team=a.shape_team, shape_sets=a.shape_sets, shape_left=a.shape_left, race_coef=a.race_coef, widen_hidden=a.widen_hidden, max_snapshots=a.max_snapshots, style_coef=a.style_coef, shape_first=a.shape_first, shape_bomb=a.shape_bomb, p_style=a.p_style, styles=a.styles, p_runout=a.p_runout, p_endgame=a.p_endgame, match_bonus=a.match_bonus, league=a.league, p_heuristic=a.p_heuristic, p_dmc=a.p_dmc, p_snapshot=a.p_snapshot, workers=a.workers, lr=a.lr, entropy=a.entropy, device=a.device, seed=a.seed, version=a.version,
                     steps_per_update=a.steps_per_update, tables_per_worker=a.tables, epochs=a.epochs,
                     queue_per_worker=a.queue)
     train(cfg, a.bc_deals, a.ppo_deals, a.out, resume=a.resume, init=a.init)

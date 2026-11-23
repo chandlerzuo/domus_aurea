@@ -72,6 +72,8 @@ class PPOConfig:
     shape_first: float = 0.0       # extra reward (levels) for the player who goes out first
     shape_bomb: float = 0.0        # extra reward (levels) per bomb a player plays (negative: keeps bombs)
     widen_hidden: int = 0          # widen the starting networks to this many hidden units (function-preserving)
+    p_partner: float = 0.0         # share of deals where the learner's partner is not a copy of itself (see fast.play_batch)
+    shape_team: float = 0.0        # levels per set of difference in the team's progress, all four hands (potential-based)
     p_style: float = 0.0           # share of deals against a scripted style (see agents.STYLES), drawn from `styles`
     styles: list = field(default_factory=list)
     p_runout: float = 0.0          # share of training deals that start from a constructed "saved runout" position
@@ -229,11 +231,22 @@ def play_task_fast(seed: int, n_deals: int, mode: str, latest: tuple[str, int], 
             return "snapshot", _actor(snapshots[k], 0)[0], (13 + k if k < min(len(cfg.league), 10) else 0)
         return "self", None
 
+    def partners(r: np.random.Generator):
+        """Who plays with the learner when it does not play with a copy of itself: the heuristic, a scripted style, or an older network."""
+        from ..agents import STYLE_NAMES
+        u = r.random()
+        if u < 0.2 or (not snapshots and u >= 0.5):
+            return "heuristic", None
+        if u < 0.5:
+            names = [x for x in STYLE_NAMES if x != "heuristic"]
+            return "style:" + names[int(r.integers(len(names)))], None
+        return "snapshot", _actor(snapshots[int(r.integers(len(snapshots)))], 0)[0]
+
     return fast_rl.play_batch(rng, n_deals, mode, learner, opponents, cfg.p_tribute, cfg.lam, REWARD_SCALE,
                               width=cfg.tables_per_worker, version=cfg.version, match_bonus=cfg.match_bonus,
                               p_endgame=cfg.p_endgame, p_runout=cfg.p_runout, shape_first=cfg.shape_first,
                               shape_bomb=cfg.shape_bomb, shape_sets=cfg.shape_sets, shape_left=cfg.shape_left,
-                              want_race=cfg.race_coef > 0)
+                              want_race=cfg.race_coef > 0, partners=partners, p_partner=cfg.p_partner, shape_team=cfg.shape_team)
 
 
 # ---- learner ----------------------------------------------------------------
