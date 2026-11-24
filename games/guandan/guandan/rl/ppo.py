@@ -108,7 +108,10 @@ def _actor(path: str, version: int) -> Actor:
     if key not in cache:
         if len(cache) > 8:
             cache.pop(next(iter(cache)))
-        cache[key] = load_policy(path, critic=True)
+        try:
+            cache[key] = load_policy(path, critic=True)
+        except ValueError:                       # a compact file (no critic): fine for an opponent or a partner, only the learner needs a critic
+            cache[key] = (load_policy(path), None)
     return cache[key]
 
 
