@@ -38,11 +38,32 @@ def encode_oracle(hands: list[list[int]], seat: int) -> np.ndarray:
     return x
 
 
+class GuessLinear(nn.Linear):
+    """The first layer of the state network. With a `guesser` (a frozen rl.belief.BeliefNet that reads the same features) it also
+    receives the guesser's probabilities for the other three players' hands: the policy chooses its move *with* its best guess of
+    who holds what in view, partner included."""
+
+    def __init__(self, in_features: int, out_features: int, guesser=None):
+        super().__init__(in_features + (ORACLE_DIM if guesser is not None else 0), out_features)
+        self.guesser = guesser
+        if guesser is not None:
+            for p in guesser.parameters():
+                p.requires_grad_(False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.guesser is not None:
+            with torch.no_grad():
+                g = torch.sigmoid(self.guesser.eval()(x))
+            x = torch.cat([x, g], -1)
+        return super().forward(x)
+
+
 class Actor(nn.Module):
-    def __init__(self, hidden: int = 512, version: int = 1):
+    def __init__(self, hidden: int = 512, version: int = 1, guesser=None):
         super().__init__()
         self.hidden, self.version = hidden, version
-        self.state = nn.Sequential(nn.Linear(state_dim(version), hidden), nn.ReLU(), nn.Linear(hidden, hidden), nn.ReLU())
+        assert guesser is None or guesser.version == version, "the guesser must read the same features as the policy"
+        self.state = nn.Sequential(GuessLinear(state_dim(version), hidden, guesser), nn.ReLU(), nn.Linear(hidden, hidden), nn.ReLU())
         self.action = nn.Sequential(nn.Linear(action_dim(version), 256), nn.ReLU())
         self.score = nn.Sequential(nn.Linear(hidden + 256, 256), nn.ReLU(), nn.Linear(256, 1))
         self.belief = nn.Linear(hidden, ORACLE_DIM)
@@ -146,6 +167,24 @@ def widen_hidden(actor: Actor, critic: Critic, hidden: int) -> tuple[Actor, Crit
     return na.eval() if not actor.training else na, nc.eval() if not critic.training else nc
 
 
+def add_guesser(actor: Actor, critic: Critic, guesser) -> tuple[Actor, Critic]:
+    """The same policy with a frozen hidden-hand guesser feeding its first layer. The new inputs start at zero weight, so the
+    policy plays exactly as before until training learns to use the guesses."""
+    assert actor.state[0].guesser is None
+    na = Actor(actor.hidden, actor.version, guesser)
+    sd = actor.state_dict()
+    new = na.state_dict()
+    for k, v in sd.items():
+        if k == "state.0.weight":
+            w = torch.zeros_like(new[k])
+            w[:, :v.shape[1]] = v
+            new[k] = w
+        else:
+            new[k] = v.clone()
+    na.load_state_dict(new)
+    return na.eval() if not actor.training else na, critic
+
+
 def padded_log_probs(logits: torch.Tensor, seg: torch.Tensor, pos: torch.Tensor, batch: int, width: int):
     """Flat per-move logits -> (batch, width) log-probabilities; padding gets probability 0."""
     pad = logits.new_full((batch, width), -1e9)
@@ -157,14 +196,20 @@ def save_policy(actor: Actor, critic: Critic, path: str | Path, **extra) -> None
     path = Path(path)
     tmp = path.with_suffix(".tmp")
     cpu = lambda m: {k: v.detach().cpu() for k, v in m.state_dict().items()}
-    torch.save({"hidden": actor.hidden, "version": actor.version, "actor": cpu(actor), "critic": cpu(critic), **extra}, tmp)
+    g = actor.state[0].guesser
+    cfg = {} if g is None else {"guesser": {"hidden": g.hidden, "version": g.version, "layers": g.layers}}   # the guesser's weights are in "actor"
+    torch.save({"hidden": actor.hidden, "version": actor.version, "actor": cpu(actor), "critic": cpu(critic), **cfg, **extra}, tmp)
     os.replace(tmp, path)  # actors may be reading the file
 
 
 def load_policy(path: str | Path, device: str = "cpu", critic: bool = False):
     ckpt = torch.load(path, map_location=device, weights_only=True)
     version = ckpt.get("version", 1)
-    actor = Actor(ckpt["hidden"], version)
+    guesser = None
+    if "guesser" in ckpt:
+        from .belief import BeliefNet
+        guesser = BeliefNet(ckpt["guesser"]["hidden"], ckpt["guesser"]["version"], ckpt["guesser"]["layers"])
+    actor = Actor(ckpt["hidden"], version, guesser)
     res = actor.load_state_dict(state_of(ckpt, "actor"), strict=False)
     assert not [k for k in res.missing_keys if not k.startswith(("style.", "race."))] and not res.unexpected_keys, res   # older files have no style head
     actor = actor.to(device).eval()

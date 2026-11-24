@@ -34,3 +34,24 @@ def test_compact_policy_loads_and_keeps_its_moves(tmp_path):
     assert (p - q).abs().max() < 0.05
     with pytest.raises(ValueError):                      # a compact policy has no critic: it cannot be trained further
         load_policy(small, critic=True)
+
+
+def test_a_guesser_in_front_of_the_policy_changes_nothing_at_first_and_survives_saving(tmp_path):
+    from guandan.rl.belief import BeliefNet
+    from guandan.rl.policy import add_guesser
+    torch.manual_seed(2)
+    a, c = Actor(64, 5), Critic(64, 5)
+    g = BeliefNet(48, 5, 2)
+    a2, _ = add_guesser(a, c, g)
+    s = torch.randint(0, 2, (3, 2755)).float()
+    m = torch.randint(0, 2, (7, a.action[0].in_features)).float()
+    with torch.no_grad():
+        assert torch.allclose(a.state(s), a2.state(s), atol=1e-6)                              # the new inputs start at zero weight
+        assert all(not p.requires_grad for p in g.parameters())                                 # the guesser stays frozen
+    a2.state[0].weight.data[:, 2755:] = 0.05                                                    # pretend training used the guesses
+    save_policy(a2, c, tmp_path / "g.pt")
+    b = load_policy(tmp_path / "g.pt")
+    assert b.state[0].guesser is not None
+    with torch.no_grad():
+        assert torch.allclose(a2.move_logits(s[0], m), b.move_logits(s[0], m), atol=1e-6)
+        assert not torch.allclose(a.move_logits(s[0], m), b.move_logits(s[0], m), atol=1e-4)  # and the guesses now matter

@@ -34,7 +34,7 @@ from .dmc import DEFAULT_MODEL as DMC_MODEL, REWARD_SCALE, DMCAgent, _device, lo
 from . import fast as fast_rl
 from .features import encode_actions, encode_state
 from .policy import (Actor, Critic, PolicyAgent, encode_oracle, load_policy, padded_log_probs, policy_step,
-                     save_policy, widen_hidden, widen_policy)
+                     add_guesser, save_policy, widen_hidden, widen_policy)
 
 torch.set_num_threads(1)
 def style_label(name: str) -> int:
@@ -74,6 +74,7 @@ class PPOConfig:
     widen_hidden: int = 0          # widen the starting networks to this many hidden units (function-preserving)
     p_partner: float = 0.0         # share of deals where the learner's partner is not a copy of itself (see fast.play_batch)
     shape_team: float = 0.0        # levels per set of difference in the team's progress, all four hands (potential-based)
+    guesser: str = ""              # a rl/belief.py file to put in front of the policy (see policy.add_guesser)
     p_style: float = 0.0           # share of deals against a scripted style (see agents.STYLES), drawn from `styles`
     styles: list = field(default_factory=list)
     p_runout: float = 0.0          # share of training deals that start from a constructed "saved runout" position
@@ -386,6 +387,10 @@ def train(cfg: PPOConfig, bc_deals: int, ppo_deals: int, out: str | Path, resume
             actor, critic = widen_policy(actor, critic, cfg.version)
             log(f"widened to feature version {cfg.version}: new input columns start at zero weight")
         cfg.version = actor.version
+        if cfg.guesser and actor.state[0].guesser is None:
+            from .belief import load_belief
+            actor, critic = add_guesser(actor, critic, load_belief(cfg.guesser))
+            log(f"put the hidden-hand guesser {cfg.guesser} in front of the policy (new inputs start at zero weight)")
         if cfg.widen_hidden and cfg.widen_hidden > actor.hidden:
             actor, critic = widen_hidden(actor, critic, cfg.widen_hidden)
             cfg.hidden = cfg.widen_hidden
