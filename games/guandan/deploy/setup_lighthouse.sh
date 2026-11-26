@@ -181,11 +181,13 @@ obs = d.observation(0)
 for kind in [k for k in ("ppo", "ppo+") if k in agent_kinds()]:
     assert 0 <= make_agent(kind, seed=0).act(obs) < len(obs["legal"]), kind
 import guandan.server.tables as T
-for variant in T.ai_variants():                                  # every AI strategy the server may pick must load and play
+ALL = T.ai_variants()
+assert ALL, "no AI strategy file found (runs/ppo/model.pt ...)"
+for variant in ALL:                                              # every AI strategy the server may pick must load and play
     T.ai_variants = lambda v=variant: [v]
     a = T.make_agent("ppo+", seed=0) if "ppo+" in agent_kinds() else None
     assert a is None or (a.variant == variant and 0 <= a.act(obs) < len(obs["legal"])), variant
-print("AI strategies (picked at random per AI seat):", ", ".join(sorted(set(["v5"] if not T.SEQ_GUESSER.exists() else ["v5", "v5+seq"]))))
+print("AI strategies (picked at random per AI seat):", ", ".join(ALL))
 from guandan.combos import FAST
 if FAST:   # the Rust core must be as new as the code and the model (older cores fail as soon as an AI seat has to move)
     import guandan_core

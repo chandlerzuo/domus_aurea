@@ -16,7 +16,7 @@ need "games/guandan/wheels/TARGET" "wheel target file"
 need "games/guandan/wheels/torch-" "PyTorch wheel"
 need "games/guandan/wheels/numpy-" "NumPy wheel"
 need "games/guandan/runs/ppo/model.pt" "policy model"
-need "games/guandan/runs/ppo/seq_guesser.pt" "sequence guesser"
+for m in round2 team1 guess1; do need "games/guandan/runs/ppo/$m.pt" "AI strategy $m"; done
 need "games/boardgames/server/server.js" "board game server"
 need "portal/index.html" "portal"
 need "deploy/setup.sh" "installer"
@@ -27,7 +27,7 @@ if [ -z "$CORE" ]; then
   echo "           Install what the build needs (see README: maturin, ziglang, a Rust toolchain with the linux target) and rebuild." >&2
   exit 1
 fi
-tar xzf "$B" -C "$W" "$CORE" "$NAME/games/guandan/wheels/TARGET" "$NAME/games/guandan/runs/ppo/model.pt" "$NAME/games/guandan/runs/ppo/seq_guesser.pt"
+tar xzf "$B" -C "$W" "$CORE" "$NAME/games/guandan/wheels/TARGET" "$NAME/games/guandan/runs/ppo/model.pt" "$NAME/games/guandan/runs/ppo/round2.pt" "$NAME/games/guandan/runs/ppo/team1.pt" "$NAME/games/guandan/runs/ppo/guess1.pt"
 PY=python3; command -v python3 >/dev/null || PY=python
 "$PY" - "$W/$CORE" "$W/$NAME/games/guandan/wheels/TARGET" <<'PYEOF' || FAIL=1
 import re, sys, zipfile
@@ -51,7 +51,7 @@ for feature in (b"STATE_DIM_V5", b"min_sets", b"ACTION_DIM_V5"):
 print(f"  {'ok  ' if ok else 'FAIL'} Rust core {name}: version {m.group(1)}, platform {plat}, newest features {'present' if ok else 'check above'}")
 sys.exit(0 if ok else 1)
 PYEOF
-for f in runs/ppo/model.pt runs/ppo/seq_guesser.pt; do
+for f in runs/ppo/model.pt runs/ppo/round2.pt runs/ppo/team1.pt runs/ppo/guess1.pt; do
   printf '  sha256 %-24s %s\n' "$(basename $f)" "$( (shasum -a 256 "$W/$NAME/games/guandan/$f" 2>/dev/null || sha256sum "$W/$NAME/games/guandan/$f") | cut -c1-16)"
 done
 [ "$FAIL" = 0 ] && echo "bundle OK" || { echo "bundle NOT OK" >&2; exit 1; }

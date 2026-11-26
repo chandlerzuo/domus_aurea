@@ -32,7 +32,7 @@ def line(label: str, xs) -> str:
 def ai_versions(db_path: str, include_assisted: bool) -> None:
     """Compare the AI strategies that ran at the same time: every AI seat picks one at random, so seats are comparable."""
     seats = collections.defaultdict(lambda: ([], [0, 0, 0, 0]))
-    human_by_partner, human_by_opp_seq = collections.defaultdict(list), collections.defaultdict(list)
+    human_by_partner = collections.defaultdict(list)
     for (rec,) in sqlite3.connect(db_path).execute("SELECT record FROM deals ORDER BY id"):
         r = json.loads(rec)
         if len(r["humans"]) != 1 or (r["assisted"] and not include_assisted) or not r.get("models"):
@@ -48,7 +48,6 @@ def ai_versions(db_path: str, include_assisted: bool) -> None:
         v = up if win == team(h) else -up
         partner = r["models"][(h + 2) % 4].split("/")[0] or "unknown"
         human_by_partner[partner].append(v)
-        human_by_opp_seq[sum(1 for s_ in range(4) if s_ % 2 != h % 2 and "+s" in r["models"][s_].split("/")[0])].append(v)
     if not seats:
         print("\n(no deals with per-seat AI versions yet)")
         return
@@ -61,9 +60,6 @@ def ai_versions(db_path: str, include_assisted: bool) -> None:
     print("\nThe human's team by the version of its AI partner:")
     for name, xs in sorted(human_by_partner.items()):
         print("  " + line(name, xs))
-    print("\nThe human's team by how many of the two opposing AIs use the sequence guesser:")
-    for k, xs in sorted(human_by_opp_seq.items()):
-        print("  " + line(f"{k} of 2 opponents", xs))
 
 
 def main():

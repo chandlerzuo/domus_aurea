@@ -186,21 +186,22 @@ def test_leaderboard_and_player_endpoints(base):
     assert call(base, "/api/player?ai=0")[0] == 400
 
 
-def test_two_ai_variants_are_assigned_and_recorded(monkeypatch):
+def test_ai_variants_are_assigned_and_recorded(monkeypatch):
     from guandan.server import tables as T
-    if not T.SEQ_GUESSER.exists() or not T.MODELS["ppo"].exists():
-        pytest.skip("no model or guesser file")
+    if not T.MODELS["ppo"].exists():
+        pytest.skip("no model")
     pytest.importorskip("guandan_core")
-    assert T.ai_variants() == ["v5", "v5+seq"]
-    seen = {T.make_agent("ppo+", seed=k).variant for k in range(40)}
-    assert seen == {"v5", "v5+seq"}                                    # both get used
-    a, b = T.model_id("v5"), T.model_id("v5+seq")
-    assert a.split("/")[0] != b.split("/")[0] and "+s" in b.split("/")[0] and "+s" not in a.split("/")[0]
+    names = T.ai_variants()
+    assert set(names) == set(T.VARIANT_FILES) and len(names) == 4        # v5, round2, team1, guess1 are all served
+    seen = {T.make_agent("ppo+", seed=k).variant for k in range(120)}
+    assert seen == set(names)                                          # every strategy gets used
+    ids = {v: T.model_id(v).split("/")[0] for v in names}
+    assert len(set(ids.values())) == 4 and all(ids[v].startswith(v + "-") for v in names if v != "v5")
     import numpy as np
     from guandan.game import Deal, deal_cards
     d = Deal(deal_cards(np.random.default_rng(0)), 3, 0)
     obs = d.observation(0)
-    for v in ("v5", "v5+seq"):
+    for v in names:
         monkeypatch.setattr(T, "ai_variants", lambda v=v: [v])
         ag = T.make_agent("ppo+", seed=1)
         assert ag.variant == v and 0 <= ag.act(obs) < len(obs["legal"])

@@ -42,7 +42,10 @@ from .store import Store
 
 RUNS = Path(__file__).resolve().parents[2] / "runs"
 MODELS = {"dmc": RUNS / "dmc" / "model.pt", "ppo": RUNS / "ppo" / "model.pt"}
-SEQ_GUESSER = RUNS / "ppo" / "seq_guesser.pt"     # the sequence hidden-hand guesser (rl/seqbelief.py); optional
+# The AI strategies a `ppo+` seat can use: name -> model file. "v5" is the first one deployed; the rest are other trained versions. Every AI
+# seat picks one of them at random when it is added, so live games compare them (the ranking lists them separately, scripts/human_vs_ai.py).
+VARIANT_FILES = {"v5": RUNS / "ppo" / "model.pt", "round2": RUNS / "ppo" / "round2.pt",
+                 "team1": RUNS / "ppo" / "team1.pt", "guess1": RUNS / "ppo" / "guess1.pt"}
 SEARCH_WORLDS = int(os.environ.get("GUANDAN_SEARCH_WORLDS", "32"))
 SEARCH_TOPK = int(os.environ.get("GUANDAN_SEARCH_TOPK", "4"))
 SEARCH_MARGIN = float(os.environ.get("GUANDAN_SEARCH_MARGIN", "0.0"))
@@ -82,19 +85,20 @@ def agent_kinds() -> list[str]:
 
 
 def ai_variants() -> list[str]:
-    """The strategies a `ppo+` seat can use. "v5" is the policy with search; "v5+seq" is the same with the sequence guesser dealing
-    the sampled hidden hands. Every AI seat picks one at random when it is added, so the two can be compared on live games
-    (scripts/human_vs_ai.py). GUANDAN_AI_VARIANTS (comma separated) overrides; without the guesser file there is only "v5"."""
-    names = [x.strip() for x in os.environ.get("GUANDAN_AI_VARIANTS", "").split(",") if x.strip()] or ["v5", "v5+seq"]
-    return [x for x in names if x != "v5+seq" or SEQ_GUESSER.exists()]
+    """The strategies a `ppo+` seat picks from (equal chances): those of VARIANT_FILES whose file exists. GUANDAN_AI_VARIANTS
+    (comma separated) restricts the list, e.g. GUANDAN_AI_VARIANTS=v5 to run only the first one."""
+    names = [x.strip() for x in os.environ.get("GUANDAN_AI_VARIANTS", "").split(",") if x.strip()] or list(VARIANT_FILES)
+    return [x for x in names if x in VARIANT_FILES and VARIANT_FILES[x].exists()]
 
 
-def _seq_net():
+def _variant_net(name: str):
+    if name == "v5":
+        return _net("ppo")
     with _NETS_LOCK:
-        if "seq" not in _NETS:
-            from ..rl.seqbelief import load_seq
-            _NETS["seq"] = load_seq(SEQ_GUESSER)
-        return _NETS["seq"]
+        if name not in _NETS:
+            from ..rl.policy import load_policy
+            _NETS[name] = load_policy(VARIANT_FILES[name])
+        return _NETS[name]
 
 
 def _net(kind: str):
@@ -119,10 +123,9 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
     if kind == "ppo+":
         from ..rl.search import SearchAgent
         variant = random.choice(ai_variants())
-        agent = SearchAgent(_net("ppo"), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN,
+        agent = SearchAgent(_variant_net(variant), seed=seed, worlds=SEARCH_WORLDS, topk=SEARCH_TOPK, margin=SEARCH_MARGIN,
                             belief=SEARCH_BELIEF, endgame_cards=ENDGAME_CARDS, endgame_worlds=ENDGAME_WORLDS,
-                            endgame_topk=ENDGAME_TOPK, plan_sets=PLAN_SETS,
-                            belief_net=_seq_net() if variant == "v5+seq" else None)
+                            endgame_topk=ENDGAME_TOPK, plan_sets=PLAN_SETS)
         agent.variant = variant
         return agent
     if kind not in BASE_AGENTS:
@@ -130,16 +133,16 @@ def make_agent(kind: str, seed: int | None = None) -> Agent:
     return BASE_AGENTS[kind](seed=seed)
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=8)
 def model_id(variant: str = "v5") -> str:
-    """Which AI played: a short hash of the model file (plus one of the guesser file for "v5+seq") and the search settings. The
-    part before the first "/" is the name the ranking lists it under. Saved with every deal, so results can be compared between
-    versions (scripts/human_vs_ai.py)."""
+    """Which AI played: the strategy's model file fingerprint (first 8 hex digits of its SHA-256) and the search settings. The part
+    before the first "/" is the name the ranking lists it under: just the fingerprint for "v5" (so its earlier results keep their
+    name), "<strategy>-<fingerprint>" for the others. Saved with every deal, so results can be compared between versions."""
     import hashlib
-    h = hashlib.sha256(MODELS["ppo"].read_bytes()).hexdigest()[:8] if MODELS["ppo"].exists() else "none"
-    if variant == "v5+seq" and SEQ_GUESSER.exists():
-        h += "+s" + hashlib.sha256(SEQ_GUESSER.read_bytes()).hexdigest()[:8]
-    return f"{h}/w{SEARCH_WORLDS}k{SEARCH_TOPK}b{SEARCH_BELIEF:g}/eg{ENDGAME_CARDS}"
+    path = VARIANT_FILES.get(variant, VARIANT_FILES["v5"])
+    h = hashlib.sha256(path.read_bytes()).hexdigest()[:8] if path.exists() else "none"
+    ident = h if variant == "v5" else f"{variant}-{h}"
+    return f"{ident}/w{SEARCH_WORLDS}k{SEARCH_TOPK}b{SEARCH_BELIEF:g}/eg{ENDGAME_CARDS}"
 
 
 @lru_cache(maxsize=512)
